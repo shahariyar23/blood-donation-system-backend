@@ -2,45 +2,48 @@ import mongoose, { Schema, Document } from "mongoose";
 
 // ── Types ──────────────────────────────────────────────
 export interface IUser extends Document {
-  name:             string;
-  email:            string;
-  phone:            string;
-  passwordHash:     string;
-  dateOfBirth:      Date;
-  age:              number;
-  gender:           "male" | "female" | "other";
-  avatar:           string;
-  bloodType:        string;
-  weight:           number;
+  name: string;
+  email: string;
+  phone: string;
+  passwordHash: string;
+  age: number;
+  gender: "male" | "female";
+  avatar: string;
+  bloodType: string;
+  weight: number;
   lastDonationDate: Date | null;
-  totalDonations:   number;
-  isAvailable:      boolean;
+  totalDonations: number;
+  isAvailable: boolean;
   location: {
-    area:        string;
-    district:    string;
-    division:    string;
+    city: String;
+    country: String;
+    country_code: String;
+    county: String;
+    postcode: String;
+    state: String;
+    state_district: String;
     coordinates: { lat: number; lng: number };
   };
   socialLinks: {
-    facebook:  string | null;
+    facebook: string | null;
     instagram: string | null;
-    twitter:   string | null;
+    twitter: string | null;
   };
-  role:            "donor" | "recipient" | "admin";
-  isVerified:      boolean;
+  role: "donor" | "recipient" | "admin";
+  isVerified: boolean;
   isDonorVerified: boolean;
-  isActive:        boolean;
-  communityFlags:  number;
+  isActive: boolean;
+  communityFlags: number;
   security: {
-    loginAttempts:     number;
-    lockedUntil:       Date | null;
-    lastLoginAt:       Date | null;
-    lastLoginIp:       string | null;
-    lastLoginDevice:   string | null;
-    twoFactorEnabled:  boolean;
-    twoFactorSecret:   string | null;
+    loginAttempts: number;
+    lockedUntil: Date | null;
+    lastLoginAt: Date | null;
+    lastLoginIp: string | null;
+    lastLoginDevice: string | null;
+    twoFactorEnabled: boolean;
+    twoFactorSecret: string | null;
     passwordChangedAt: Date | null;
-    activeSessions:    number;
+    activeSessions: number;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -50,44 +53,41 @@ export interface IUser extends Document {
 const UserSchema = new Schema<IUser>(
   {
     name: {
-      type:     String,
+      type: String,
       required: [true, "Name is required"],
-      trim:     true,
+      trim: true,
       minlength: [2, "Name must be at least 2 characters"],
     },
     email: {
-      type:     String,
+      type: String,
       required: [true, "Email is required"],
-      unique:   true,
-      trim:     true,
+      unique: true,
+      trim: true,
       lowercase: true,
       match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "Invalid email address"],
     },
     phone: {
-      type:     String,
+      type: String,
       required: [true, "Phone is required"],
-      unique:   true,
-      trim:     true,
+      unique: true,
+      trim: true,
     },
     passwordHash: {
-      type:     String,
+      type: String,
       required: true,
-      select:   false,   // never returned in queries by default
-    },
-    dateOfBirth: {
-      type: Date,
+      select: false, // never returned in queries by default
     },
     age: {
       type: Number,
-      min:  [18, "Must be at least 18"],
-      max:  [65, "Must be under 65"],
+      min: [18, "Must be at least 18"],
+      max: [65, "Must be under 65"],
     },
     gender: {
       type: String,
       enum: ["male", "female", "other"],
     },
     avatar: {
-      type:    String,
+      type: String,
       default: "",
     },
     bloodType: {
@@ -96,73 +96,77 @@ const UserSchema = new Schema<IUser>(
     },
     weight: {
       type: Number,
-      min:  [50, "Minimum weight is 50 kg"],
+      min: [50, "Minimum weight is 50 kg"],
     },
     lastDonationDate: {
-      type:    Date,
+      type: Date,
       default: null,
     },
     totalDonations: {
-      type:    Number,
+      type: Number,
       default: 0,
-      min:     0,
+      min: 0,
     },
     isAvailable: {
-      type:    Boolean,
+      type: Boolean,
       default: false,
     },
     location: {
-      area:     { type: String, default: "" },
-      district: { type: String, default: "" },
-      division: { type: String, default: "" },
+      city: { type: String, default: "" },
+      country: { type: String, default: "" },
+      country_code: { type: String, default: "" },
+      county: { type: String, default: "" },
+      postcode: { type: String, default: "" },
+      state: { type: String, default: "" },
+      state_district: { type: String, default: "" },
       coordinates: {
         lat: { type: Number, default: null },
         lng: { type: Number, default: null },
       },
     },
     socialLinks: {
-      facebook:  { type: String, default: null },
+      facebook: { type: String, default: null },
       instagram: { type: String, default: null },
-      twitter:   { type: String, default: null },
+      twitter: { type: String, default: null },
     },
     role: {
-      type:    String,
-      enum:    ["donor", "recipient", "admin"],
+      type: String,
+      enum: ["donor", "recipient", "admin"],
       default: "recipient",
     },
     isVerified: {
-      type:    Boolean,
+      type: Boolean,
       default: false,
     },
     isDonorVerified: {
-      type:    Boolean,
+      type: Boolean,
       default: false,
     },
     isActive: {
-      type:    Boolean,
+      type: Boolean,
       default: true,
     },
     communityFlags: {
-      type:    Number,
+      type: Number,
       default: 0,
-      min:     0,
+      min: 0,
     },
     security: {
-      loginAttempts:     { type: Number,  default: 0 },
-      lockedUntil:       { type: Date,    default: null },
-      lastLoginAt:       { type: Date,    default: null },
-      lastLoginIp:       { type: String,  default: null },
-      lastLoginDevice:   { type: String,  default: null },
-      twoFactorEnabled:  { type: Boolean, default: false },
-      twoFactorSecret:   { type: String,  default: null, select: false },
-      passwordChangedAt: { type: Date,    default: null },
-      activeSessions:    { type: Number,  default: 0 },
+      loginAttempts: { type: Number, default: 0 },
+      lockedUntil: { type: Date, default: null },
+      lastLoginAt: { type: Date, default: null },
+      lastLoginIp: { type: String, default: null },
+      lastLoginDevice: { type: String, default: null },
+      twoFactorEnabled: { type: Boolean, default: false },
+      twoFactorSecret: { type: String, default: null, select: false },
+      passwordChangedAt: { type: Date, default: null },
+      activeSessions: { type: Number, default: 0 },
     },
   },
   {
-    timestamps: true,   // auto createdAt + updatedAt
+    timestamps: true, // auto createdAt + updatedAt
     versionKey: false,
-  }
+  },
 );
 
 // ── Indexes ────────────────────────────────────────────
