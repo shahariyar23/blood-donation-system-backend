@@ -170,11 +170,8 @@ const UserSchema = new Schema<IUser>(
 );
 
 // ── Indexes ────────────────────────────────────────────
-UserSchema.index({ email: 1 });
-UserSchema.index({ phone: 1 });
 UserSchema.index({ bloodType: 1 });
 UserSchema.index({ "location.district": 1 });
-UserSchema.index({ "location.coordinates": "2dsphere" });
 UserSchema.index({ isAvailable: 1, isDonorVerified: 1 });
 UserSchema.index({ role: 1, isActive: 1 });
 

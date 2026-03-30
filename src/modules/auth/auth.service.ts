@@ -14,7 +14,6 @@ import {
 } from "../../shared/utils";
 
 export class AuthService {
-
   // ── Private helpers ──────────────────────────────────
 
   private static parseDevice(userAgent: string) {
@@ -22,19 +21,19 @@ export class AuthService {
     const r = parser.getResult();
     return {
       device: {
-        type:      r.device.type   || "desktop",
-        brand:     r.device.vendor || "unknown",
-        model:     r.device.model  || "unknown",
-        os:        r.os.name       || "unknown",
-        osVersion: r.os.version    || "unknown",
+        type: r.device.type || "desktop",
+        brand: r.device.vendor || "unknown",
+        model: r.device.model || "unknown",
+        os: r.os.name || "unknown",
+        osVersion: r.os.version || "unknown",
       },
       browser: {
-        name:           r.browser.name    || "unknown",
-        version:        r.browser.version || "unknown",
-        engine:         r.engine.name     || "unknown",
-        language:       "unknown",
+        name: r.browser.name || "unknown",
+        version: r.browser.version || "unknown",
+        engine: r.engine.name || "unknown",
+        language: "unknown",
         cookiesEnabled: false,
-        doNotTrack:     false,
+        doNotTrack: false,
         userAgent,
       },
     };
@@ -43,9 +42,9 @@ export class AuthService {
   private static getIpLocation(ip: string) {
     const geo = geoip.lookup(ip.replace("::ffff:", ""));
     return {
-      country:     geo?.country    || "",
-      city:        geo?.city       || "",
-      state:       geo?.region     || "",
+      country: geo?.country || "",
+      city: geo?.city || "",
+      state: geo?.region || "",
       coordinates: {
         lat: geo?.ll?.[0] ?? null,
         lng: geo?.ll?.[1] ?? null,
@@ -54,29 +53,29 @@ export class AuthService {
   }
 
   static detectVpn(frontendLocation: Record<string, any>, ip: string) {
-    const ipLoc    = this.getIpLocation(ip);
+    const ipLoc = this.getIpLocation(ip);
     if (!ipLoc.country) return { isVpn: false };
 
     const fCountry = (frontendLocation.country_code || "").toUpperCase();
-    const iCountry = (ipLoc.country                 || "").toUpperCase();
-    const fCity    = (frontendLocation.city  || "").toLowerCase();
-    const fState   = (frontendLocation.state || "").toLowerCase();
-    const iCity    = (ipLoc.city  || "").toLowerCase();
-    const iState   = (ipLoc.state || "").toLowerCase();
+    const iCountry = (ipLoc.country || "").toUpperCase();
+    const fCity = (frontendLocation.city || "").toLowerCase();
+    const fState = (frontendLocation.state || "").toLowerCase();
+    const iCity = (ipLoc.city || "").toLowerCase();
+    const iState = (ipLoc.state || "").toLowerCase();
 
     if (fCountry && iCountry && fCountry !== iCountry) {
       return {
-        isVpn:  true,
+        isVpn: true,
         reason: `Country mismatch — device says "${fCountry}" but IP is from "${iCountry}"`,
       };
     }
 
-    const cityMatch  = fCity  && iCity  && fCity  === iCity;
+    const cityMatch = fCity && iCity && fCity === iCity;
     const stateMatch = fState && iState && fState === iState;
 
     if (fCity && fState && !cityMatch && !stateMatch) {
       return {
-        isVpn:  true,
+        isVpn: true,
         reason: `Location mismatch — device (${fCity}, ${fState}) vs IP (${iCity}, ${iState}). Disable VPN.`,
       };
     }
@@ -88,8 +87,19 @@ export class AuthService {
   //  register
   // ════════════════════════════════════════════════════
   static async register(body: any, ip: string, userAgent: string) {
-    const { name, email, phone, password, bloodType,
-            age, gender, weight, dateOfBirth, location, socialLinks } = body;
+    const {
+      name,
+      email,
+      phone,
+      password,
+      bloodType,
+      age,
+      gender,
+      weight,
+      dateOfBirth,
+      location,
+      socialLinks,
+    } = body;
 
     // VPN check
     const { isVpn, reason } = this.detectVpn(location, ip);
@@ -108,7 +118,10 @@ export class AuthService {
 
     // Create user
     const user = await User.create({
-      name, email, phone, passwordHash,
+      name,
+      email,
+      phone,
+      passwordHash,
       age: age || null,
       gender: gender || null,
       bloodType,
@@ -117,12 +130,12 @@ export class AuthService {
       isAvailable: false,
       isDonorVerified: false,
       location: {
-        city:           location.city           || "",
-        country:        location.country        || "",
-        country_code:   location.country_code   || "",
-        county:         location.county         || "",
-        postcode:       location.postcode       || "",
-        state:          location.state          || "",
+        city: location.city || "",
+        country: location.country || "",
+        country_code: location.country_code || "",
+        county: location.county || "",
+        postcode: location.postcode || "",
+        state: location.state || "",
         state_district: location.state_district || "",
         coordinates: {
           lat: location.coordinates?.lat ?? null,
@@ -130,24 +143,27 @@ export class AuthService {
         },
       },
       socialLinks: {
-        facebook:  socialLinks?.facebook  || null,
+        facebook: socialLinks?.facebook || null,
         instagram: socialLinks?.instagram || null,
-        twitter:   socialLinks?.twitter   || null,
+        twitter: socialLinks?.twitter || null,
       },
     });
 
     // Log activity
     await UserActivity.create({
-      userId: user._id, event: "register",
+      userId: user._id,
+      event: "register",
       meta: { bloodType: user.bloodType },
-      ip, userAgent, timestamp: new Date(),
+      ip,
+      userAgent,
+      timestamp: new Date(),
     }).catch(() => {});
 
     return {
-      id:        user._id,
-      name:      user.name,
-      email:     user.email,
-      role:      user.role,
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
       bloodType: user.bloodType,
     };
   }
@@ -160,19 +176,30 @@ export class AuthService {
 
     // VPN check
     if (location) {
-      const { isVpn, reason } = this.detectVpn(location, ip.replace("::ffff:", ""));
+      const { isVpn, reason } = this.detectVpn(
+        location,
+        ip.replace("::ffff:", ""),
+      );
       if (isVpn) throw new ApiError(403, `Login blocked. ${reason}`);
     }
 
     // Find user
-    const user = await User.findOne({ email: email.toLowerCase() }).select("+passwordHash");
-    if (!user)        throw new ApiError(401, "Invalid email or password");
-    if (!user.isActive) throw new ApiError(403, "Account deactivated. Contact support.");
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+passwordHash",
+    );
+    if (!user) throw new ApiError(401, "Invalid email or password");
+    if (!user.isActive)
+      throw new ApiError(403, "Account deactivated. Contact support.");
 
     // Lock check
     if (user.security.lockedUntil && user.security.lockedUntil > new Date()) {
-      const mins = Math.ceil((user.security.lockedUntil.getTime() - Date.now()) / 60000);
-      throw new ApiError(423, `Account locked. Try again in ${mins} minute(s).`);
+      const mins = Math.ceil(
+        (user.security.lockedUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ApiError(
+        423,
+        `Account locked. Try again in ${mins} minute(s).`,
+      );
     }
 
     // Password check
@@ -180,34 +207,37 @@ export class AuthService {
     if (!isMatch) {
       user.security.loginAttempts += 1;
       if (user.security.loginAttempts >= 5) {
-        user.security.lockedUntil   = new Date(Date.now() + 15 * 60 * 1000);
+        user.security.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
         user.security.loginAttempts = 0;
       }
       await user.save();
       await UserActivity.create({
-        userId: user._id, event: "login_failed",
+        userId: user._id,
+        event: "login_failed",
         meta: { attempts: user.security.loginAttempts },
-        ip, userAgent, timestamp: new Date(),
+        ip,
+        userAgent,
+        timestamp: new Date(),
       }).catch(() => {});
       throw new ApiError(401, "Invalid email or password");
     }
 
     // Update security + location
-    user.security.loginAttempts   = 0;
-    user.security.lockedUntil     = null;
-    user.security.lastLoginAt     = new Date();
-    user.security.lastLoginIp     = ip;
+    user.security.loginAttempts = 0;
+    user.security.lockedUntil = null;
+    user.security.lastLoginAt = new Date();
+    user.security.lastLoginIp = ip;
     user.security.lastLoginDevice = userAgent?.substring(0, 100) || null;
     user.security.activeSessions += 1;
 
     if (location) {
       user.location = {
-        city:           location.city           || user.location.city,
-        country:        location.country        || user.location.country,
-        country_code:   location.country_code   || user.location.country_code,
-        county:         location.county         || user.location.county,
-        postcode:       location.postcode       || user.location.postcode,
-        state:          location.state          || user.location.state,
+        city: location.city || user.location.city,
+        country: location.country || user.location.country,
+        country_code: location.country_code || user.location.country_code,
+        county: location.county || user.location.county,
+        postcode: location.postcode || user.location.postcode,
+        state: location.state || user.location.state,
         state_district: location.state_district || user.location.state_district,
         coordinates: {
           lat: location.coordinates?.lat ?? user.location.coordinates.lat,
@@ -219,7 +249,7 @@ export class AuthService {
     await user.save();
 
     // Tokens
-    const accessToken  = generateAccessToken(String(user._id), user.role);
+    const accessToken = generateAccessToken(String(user._id), user.role);
     const refreshToken = generateRefreshToken(String(user._id));
 
     // Session
@@ -228,26 +258,47 @@ export class AuthService {
     const ipLoc = this.getIpLocation(cleanIp);
 
     const session = await Session.create({
-      userId: user._id, device, browser,
-      network: { ip: cleanIp, ipv6: null, type: "unknown",
-                 effectiveType: "unknown", downlink: null,
-                 isp: null, proxy: false, vpn: false, tor: false },
-      location: {
-        country: ipLoc.country, countryCode: ipLoc.country,
-        division: ipLoc.state, district: ipLoc.state,
-        city: ipLoc.city, timezone: "",
-        coordinates: ipLoc.coordinates, accuracy: "city-level",
+      userId: user._id,
+      device,
+      browser,
+      network: {
+        ip: cleanIp,
+        ipv6: null,
+        type: "unknown",
+        effectiveType: "unknown",
+        downlink: null,
+        isp: null,
+        proxy: false,
+        vpn: false,
+        tor: false,
       },
-      token: accessToken, refreshToken,
+      location: {
+        country: ipLoc.country,
+        countryCode: ipLoc.country,
+        division: ipLoc.state,
+        district: ipLoc.state,
+        city: ipLoc.city,
+        timezone: "",
+        coordinates: ipLoc.coordinates,
+        accuracy: "city-level",
+      },
+      token: accessToken,
+      refreshToken,
       tokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
-      loginMethod: "email", isActive: true, lastActiveAt: new Date(),
+      loginMethod: "email",
+      isActive: true,
+      lastActiveAt: new Date(),
     });
 
     // Log activity
     await UserActivity.create({
-      userId: user._id, sessionId: session._id, event: "login",
+      userId: user._id,
+      sessionId: session._id,
+      event: "login",
       meta: { method: "email", device: device.type },
-      ip: cleanIp, userAgent, timestamp: new Date(),
+      ip: cleanIp,
+      userAgent,
+      timestamp: new Date(),
     }).catch(() => {});
 
     return {
@@ -255,10 +306,16 @@ export class AuthService {
       data: {
         accessToken,
         user: {
-          id: user._id, name: user.name, email: user.email,
-          phone: user.phone, role: user.role, avatar: user.avatar,
-          bloodType: user.bloodType, isAvailable: user.isAvailable,
-          isVerified: user.isVerified, isDonorVerified: user.isDonorVerified,
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          avatar: user.avatar,
+          bloodType: user.bloodType,
+          isAvailable: user.isAvailable,
+          isVerified: user.isVerified,
+          isDonorVerified: user.isDonorVerified,
           location: user.location,
         },
       },
@@ -268,7 +325,12 @@ export class AuthService {
   // ════════════════════════════════════════════════════
   //  logout
   // ════════════════════════════════════════════════════
-  static async logout(userId: string, sessionId: string, ip: string, userAgent: string) {
+  static async logout(
+    userId: string,
+    sessionId: string,
+    ip: string,
+    userAgent: string,
+  ) {
     await Session.findByIdAndUpdate(sessionId, {
       $set: { isActive: false, loggedOutAt: new Date() },
     });
@@ -276,8 +338,13 @@ export class AuthService {
       $inc: { "security.activeSessions": -1 },
     });
     await UserActivity.create({
-      userId, sessionId, event: "logout",
-      meta: {}, ip, userAgent, timestamp: new Date(),
+      userId,
+      sessionId,
+      event: "logout",
+      meta: {},
+      ip,
+      userAgent,
+      timestamp: new Date(),
     }).catch(() => {});
   }
 
@@ -292,19 +359,24 @@ export class AuthService {
       throw new ApiError(401, "Invalid or expired refresh token");
     }
 
-    const session = await Session.findOne({ userId: decoded.id, isActive: true });
-    if (!session) throw new ApiError(401, "Session expired. Please log in again.");
+    const session = await Session.findOne({
+      userId: decoded.id,
+      isActive: true,
+    });
+    if (!session)
+      throw new ApiError(401, "Session expired. Please log in again.");
 
     const user = await User.findById(decoded.id);
-    if (!user || !user.isActive) throw new ApiError(401, "User not found or deactivated");
+    if (!user || !user.isActive)
+      throw new ApiError(401, "User not found or deactivated");
 
     const newAccessToken = generateAccessToken(String(user._id), user.role);
 
     await Session.findByIdAndUpdate(session._id, {
       $set: {
-        token:          newAccessToken,
+        token: newAccessToken,
         tokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
-        lastActiveAt:   new Date(),
+        lastActiveAt: new Date(),
       },
     });
 
@@ -314,7 +386,10 @@ export class AuthService {
   // ════════════════════════════════════════════════════
   //  forgotPassword
   // ════════════════════════════════════════════════════
-  private static resetTokenStore = new Map<string, { userId: string; expiresAt: number }>();
+  private static resetTokenStore = new Map<
+    string,
+    { userId: string; expiresAt: number }
+  >();
 
   static async forgotPassword(email: string, clientUrl: string) {
     const user = await User.findOne({ email: email.toLowerCase() });
@@ -322,13 +397,13 @@ export class AuthService {
 
     const resetToken = crypto.randomBytes(32).toString("hex");
     this.resetTokenStore.set(resetToken, {
-      userId:    String(user._id),
+      userId: String(user._id),
       expiresAt: Date.now() + 30 * 60 * 1000,
     });
 
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
     await sendEmail({
-      to:      user.email,
+      to: user.email,
       subject: "BloodConnect — Password Reset",
       html: `
         <h2>Password Reset Request</h2>
@@ -347,7 +422,12 @@ export class AuthService {
   // ════════════════════════════════════════════════════
   //  resetPassword
   // ════════════════════════════════════════════════════
-  static async resetPassword(token: string, newPassword: string, ip: string, userAgent: string) {
+  static async resetPassword(
+    token: string,
+    newPassword: string,
+    ip: string,
+    userAgent: string,
+  ) {
     const record = this.resetTokenStore.get(token);
 
     if (!record || Date.now() > record.expiresAt) {
@@ -359,24 +439,28 @@ export class AuthService {
 
     await User.findByIdAndUpdate(record.userId, {
       $set: {
-        passwordHash:                 hashed,
+        passwordHash: hashed,
         "security.passwordChangedAt": new Date(),
-        "security.loginAttempts":     0,
-        "security.lockedUntil":       null,
-        "security.activeSessions":    0,
+        "security.loginAttempts": 0,
+        "security.lockedUntil": null,
+        "security.activeSessions": 0,
       },
     });
 
     await Session.updateMany(
       { userId: record.userId, isActive: true },
-      { $set: { isActive: false, loggedOutAt: new Date() } }
+      { $set: { isActive: false, loggedOutAt: new Date() } },
     );
 
     this.resetTokenStore.delete(token);
 
     await UserActivity.create({
-      userId: record.userId, event: "password_reset",
-      meta: {}, ip, userAgent, timestamp: new Date(),
+      userId: record.userId,
+      event: "password_reset",
+      meta: {},
+      ip,
+      userAgent,
+      timestamp: new Date(),
     }).catch(() => {});
   }
 }

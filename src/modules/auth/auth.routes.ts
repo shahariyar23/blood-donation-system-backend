@@ -8,9 +8,12 @@ import {
   resetPassword,
   getAuthUser,
 } from "./auth.controller";
-import { protect }                                        from "../../middleware/auth.middleware";
-import { authLimiter, forgotPasswordLimiter }             from "../../middleware/rateLimiter.middleware";
-import { validate }                                       from "../../middleware/validation.middleware";
+import { protect } from "../../middleware/auth.middleware";
+import {
+  authLimiter,
+  forgotPasswordLimiter,
+} from "../../middleware/rateLimiter.middleware";
+import { validate } from "../../middleware/validation.middleware";
 import {
   registerSchema,
   loginSchema,
@@ -25,20 +28,10 @@ const router = Router();
 // ══════════════════════════════════════════════════════
 
 // POST /api/auth/register
-router.post(
-  "/register",
-  authLimiter,
-  validate(registerSchema),
-  register
-);
+router.post("/register", authLimiter, validate(registerSchema), register);
 
 // POST /api/auth/login
-router.post(
-  "/login",
-  authLimiter,
-  validate(loginSchema),
-  login
-);
+router.post("/login", authLimiter, validate(loginSchema), login);
 
 // POST /api/auth/refresh-token  (uses cookie — no body needed)
 router.post("/refresh-token", refreshAccessToken);
@@ -48,15 +41,11 @@ router.post(
   "/forgot-password",
   forgotPasswordLimiter,
   validate(forgotPasswordSchema),
-  forgotPassword
+  forgotPassword,
 );
 
 // POST /api/auth/reset-password
-router.post(
-  "/reset-password",
-  validate(resetPasswordSchema),
-  resetPassword
-);
+router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 // ══════════════════════════════════════════════════════
 //  PROTECTED ROUTES  (require valid JWT)
