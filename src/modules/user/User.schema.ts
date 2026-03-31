@@ -34,6 +34,8 @@ export interface IUser extends Document {
   isDonorVerified: boolean;
   isActive: boolean;
   communityFlags: number;
+  passwordResetToken: string | null;
+  passwordResetExpires: Date | null;
   security: {
     loginAttempts: number;
     lockedUntil: Date | null;
@@ -151,6 +153,8 @@ const UserSchema = new Schema<IUser>(
       default: 0,
       min: 0,
     },
+    passwordResetToken: { type: String, default: null, select: false },
+    passwordResetExpires: { type: Date, default: null },
     security: {
       loginAttempts: { type: Number, default: 0 },
       lockedUntil: { type: Date, default: null },
