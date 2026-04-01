@@ -15,14 +15,27 @@ export interface IUser extends Document {
   totalDonations: number;
   isAvailable: boolean;
   location: {
-    city: String;
-    country: String;
-    country_code: String;
-    county: String;
-    postcode: String;
-    state: String;
-    state_district: String;
-    coordinates: { lat: number; lng: number };
+    displayName: { type: String; default: "" };
+    // Address breakdown
+    road: { type: String; default: "" };
+    quarter: { type: String; default: "" };
+    suburb: { type: String; default: "" };
+
+    city: { type: String; default: "" }; // fallback if exists
+    county: { type: String; default: "" };
+    state_district: { type: String; default: "" };
+    state: { type: String; default: "" };
+
+    postcode: { type: String; default: "" };
+
+    country: { type: String; default: "" };
+    country_code: { type: String; default: "" };
+
+    // Coordinates
+    coordinates: {
+      lat: { type: Number; default: null };
+      lng: { type: Number; default: null };
+    };
   };
   socialLinks: {
     facebook: string | null;
@@ -114,13 +127,24 @@ const UserSchema = new Schema<IUser>(
       default: false,
     },
     location: {
-      city: { type: String, default: "" },
+      displayName: { type: String, default: "" }, 
+
+      // Address breakdown
+      road: { type: String, default: "" },
+      quarter: { type: String, default: "" },
+      suburb: { type: String, default: "" },
+
+      city: { type: String, default: "" }, 
+      county: { type: String, default: "" },
+      state_district: { type: String, default: "" },
+      state: { type: String, default: "" },
+
+      postcode: { type: String, default: "" },
+
       country: { type: String, default: "" },
       country_code: { type: String, default: "" },
-      county: { type: String, default: "" },
-      postcode: { type: String, default: "" },
-      state: { type: String, default: "" },
-      state_district: { type: String, default: "" },
+
+      // Coordinates
       coordinates: {
         lat: { type: Number, default: null },
         lng: { type: Number, default: null },
