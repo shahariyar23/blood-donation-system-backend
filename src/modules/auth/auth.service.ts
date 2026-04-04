@@ -182,7 +182,8 @@ export class AuthService {
   //  login
   // ════════════════════════════════════════════════════
   static async login(body: any, ip: string, userAgent: string) {
-    const { email, password, location } = body;
+    const { identifier, password, location } = body;
+    console.log(identifier, password, location, "body")
 
     // VPN check
     if (location) {
@@ -193,14 +194,21 @@ export class AuthService {
       if (isVpn) throw new ApiError(403, `Login blocked. ${reason}`);
     }
 
-    // Find user
-    const user = await User.findOne({ email: email.toLowerCase() }).select(
-      "+passwordHash",
-    );
-    if (!user) throw new ApiError(401, "Invalid email or password");
-    if (!user.isActive)
-      throw new ApiError(403, "Account deactivated. Contact support.");
+    // detect identifier type
+    const isEmail = identifier.includes("@");
 
+    const query = isEmail
+      ? { email: identifier.toLowerCase() }
+      : { phone: identifier };
+
+    // Find user
+    const user = await User.findOne(query).select("+passwordHash");
+
+    if (!user) throw new ApiError(401, "Invalid email or phone or password");
+
+    if (!user.isActive) {
+      throw new ApiError(403, "Account deactivated. Contact support.");
+    }
     // Lock check
     if (user.security.lockedUntil && user.security.lockedUntil > new Date()) {
       const mins = Math.ceil(
@@ -244,24 +252,24 @@ export class AuthService {
       user.location = {
         displayName: location.displayName,
 
-        road: location.details.road || "",
-        quarter: location.details.quarter || "",
-        suburb: location.details.suburb || "",
+        road: location.road || "",
+        quarter: location.quarter || "",
+        suburb: location.suburb || "",
 
-        city: location.details.city || location.details.county || "",
-        county: location.details.county || "",
+        city: location.city || location.county || "",
+        county: location.county || "",
 
-        state_district: location.details.state_district || "",
-        state: location.details.state || "",
+        state_district: location.state_district || "",
+        state: location.state || "",
 
-        postcode: location.details.postcode || "",
+        postcode: location.postcode || "",
 
-        country: location.details.country || "",
-        country_code: location.details.country_code?.toUpperCase() || "",
+        country: location.country || "",
+        country_code: location.country_code?.toUpperCase() || "",
 
         coordinates: {
-          lat: location.latitude,
-          lng: location.longitude,
+          lat: location.coordinates?.lat,
+          lng: location.coordinates?.lng,
         },
       };
     }
@@ -277,7 +285,8 @@ export class AuthService {
     const { device, browser } = this.parseDevice(userAgent);
     const ipLoc = this.getIpLocation(cleanIp);
 
-    const session = await Session.create({
+   try {
+     const session = await Session.create({
       userId: user._id,
       device,
       browser,
@@ -309,7 +318,6 @@ export class AuthService {
       isActive: true,
       lastActiveAt: new Date(),
     });
-
     // Log activity
     await UserActivity.create({
       userId: user._id,
@@ -320,6 +328,13 @@ export class AuthService {
       userAgent,
       timestamp: new Date(),
     }).catch(() => {});
+    console.log("create session ");
+    
+   } catch (error) {
+    console.log("from session: ", error)
+   }
+
+    
 
     return {
       refreshToken,

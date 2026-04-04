@@ -36,8 +36,6 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 
   const result = await AuthService.login(req.body, ip, userAgent);
 
-  // refreshToken → HTTP-only cookie (never exposed to JS)
-  // accessToken  → response body (frontend stores in memory)
   res.cookie("refreshToken", result.refreshToken, cookieOptions);
 
   res

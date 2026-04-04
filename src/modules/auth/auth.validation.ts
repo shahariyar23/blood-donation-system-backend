@@ -3,13 +3,26 @@ import { z } from "zod";
 // ── Reusable pieces ────────────────────────────────────
 
 const locationSchema = z.object({
-  city:           z.string().default(""),
-  country:        z.string().default(""),
-  country_code:   z.string().min(2, "Invalid country code"),
-  county:         z.string().default(""),
-  postcode:       z.string().default(""),
-  state:          z.string().default(""),
-  state_district: z.string().default(""),
+  displayName: z.string().default(""),
+
+  // Detailed address
+  road: z.string().optional().default(""),
+  quarter: z.string().optional().default(""),
+  suburb: z.string().optional().default(""),
+
+  city: z.string().optional().default(""),
+  county: z.string().optional().default(""),
+  state_district: z.string().optional().default(""),
+  state: z.string().optional().default(""),
+
+  postcode: z.string().optional().default(""),
+
+  country: z.string().default(""),
+  country_code: z
+    .string()
+    .optional(),
+
+  // Coordinates
   coordinates: z
     .object({
       lat: z.number().nullable().default(null),
@@ -68,11 +81,20 @@ export const registerSchema = z.object({
 // ══════════════════════════════════════════════════════
 //  LOGIN
 // ══════════════════════════════════════════════════════
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phoneRegex = /^(01[3-9]\d{8})$|^(8801[3-9]\d{8})$/;
+
 export const loginSchema = z.object({
-  email:    z.string(),
+  identifier: z
+    .string()
+    .min(1, "Email or phone is required")
+    .refine(
+      (val) => emailRegex.test(val) || phoneRegex.test(val),
+      { message: "Enter a valid email or Bangladeshi phone number" }
+    ),
+
   password: z.string().min(1, "Password is required"),
 
-  // optional — used for VPN detection + location update
   location: locationSchema.optional(),
 });
 
