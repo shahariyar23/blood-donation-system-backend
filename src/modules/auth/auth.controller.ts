@@ -13,11 +13,27 @@ const cookieOptions = {
   maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
+// ── IP extractor ───────────────────────────────────────
+// reads real client IP from x-forwarded-for header first,
+// then falls back to req.ip and socket address
+// replaces ::ffff: (IPv4-mapped IPv6) and ::1 (localhost IPv6)
+const extractIp = (req: Request): string => {
+  const forwarded = req.headers["x-forwarded-for"] as string;
+
+  const raw = forwarded
+    ? forwarded.split(",")[0].trim()
+    : req.ip || req.socket.remoteAddress || "";
+
+  return raw
+    .replace("::ffff:", "")  // IPv4-mapped IPv6 → plain IPv4
+    .replace("::1", "127.0.0.1"); // localhost IPv6 → localhost IPv4
+};
+
 // ══════════════════════════════════════════════════════
 //  POST /api/auth/register
 // ══════════════════════════════════════════════════════
 export const register = asyncHandler(async (req: Request, res: Response) => {
-  const ip        = (req.ip || "").replace("::ffff:", "");
+  const ip        = extractIp(req);
   const userAgent = req.headers["user-agent"] || "";
 
   const data = await AuthService.register(req.body, ip, userAgent);
@@ -31,11 +47,13 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 //  POST /api/auth/login
 // ══════════════════════════════════════════════════════
 export const login = asyncHandler(async (req: Request, res: Response) => {
-  const ip        = (req.ip || "").replace("::ffff:", "");
+  const ip        = extractIp(req);
   const userAgent = req.headers["user-agent"] || "";
 
   const result = await AuthService.login(req.body, ip, userAgent);
 
+  // refreshToken → HTTP-only cookie (never exposed to JS)
+  // accessToken  → response body (frontend stores in memory/redux)
   res.cookie("refreshToken", result.refreshToken, cookieOptions);
 
   res
@@ -47,7 +65,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 //  POST /api/auth/logout
 // ══════════════════════════════════════════════════════
 export const logout = asyncHandler(async (req: Request, res: Response) => {
-  const ip        = req.ip                    || "";
+  const ip        = extractIp(req);
   const userAgent = req.headers["user-agent"] || "";
 
   await AuthService.logout(
@@ -88,8 +106,8 @@ export const refreshAccessToken = asyncHandler(
 // ══════════════════════════════════════════════════════
 export const forgotPassword = asyncHandler(
   async (req: Request, res: Response) => {
-    const { email }   = req.body;
-    const clientUrl   = process.env.CLIENT_URL || "";
+    const { email } = req.body;
+    const clientUrl = process.env.CLIENT_URL || "";
 
     await AuthService.forgotPassword(email, clientUrl);
 
@@ -111,7 +129,7 @@ export const forgotPassword = asyncHandler(
 export const resetPassword = asyncHandler(
   async (req: Request, res: Response) => {
     const { token, newPassword } = req.body;
-    const ip        = req.ip                    || "";
+    const ip        = extractIp(req);
     const userAgent = req.headers["user-agent"] || "";
 
     await AuthService.resetPassword(token, newPassword, ip, userAgent);
