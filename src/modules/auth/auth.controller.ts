@@ -99,7 +99,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 //  POST /api/auth/login
 // ══════════════════════════════════════════════════════
 export const login = asyncHandler(async (req: Request, res: Response) => {
-  const ip        = extractIp(req);
+  const ip = extractIp(req);
   const userAgent = req.headers["user-agent"] || "";
 
   const result = await AuthService.login(req.body, ip, userAgent);
