@@ -1,17 +1,17 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "../shared/utils";
-import { ApiError }          from "../shared/utils";
-import { asyncHandler }      from "../shared/utils";
-import Session               from "../modules/auth/Session.schema";
-import User                  from "../modules/user/User.schema";
+import { ApiError } from "../shared/utils";
+import { asyncHandler } from "../shared/utils";
+import Session from "../modules/auth/Session.schema";
+import User from "../modules/user/User.schema";
 
 // ── Extend Express Request type ────────────────────────
 declare global {
   namespace Express {
     interface Request {
       user?: {
-        id:        string;
-        role:      string;
+        id: string;
+        role: string;
         sessionId: string;
       };
     }
@@ -46,7 +46,8 @@ export const protect = asyncHandler(
 
     // ── Check session is still active ─────────────────
     const session = await Session.findOne({
-      userId:   decoded.id,
+      userId: decoded.id,
+      token,
       isActive: true,
     }).select("_id");
 
@@ -67,13 +68,13 @@ export const protect = asyncHandler(
 
     // ── Attach to request ──────────────────────────────
     req.user = {
-      id:        decoded.id,
-      role:      user.role,
+      id: decoded.id,
+      role: user.role,
       sessionId: String(session._id),
     };
 
     next();
-  }
+  },
 );
 
 // ══════════════════════════════════════════════════════
@@ -90,21 +91,22 @@ export const optionalProtect = asyncHandler(
     }
 
     try {
-      const token   = authHeader.split(" ")[1];
+      const token = authHeader.split(" ")[1];
       const decoded: any = verifyAccessToken(token);
 
       const user = await User.findById(decoded.id).select("role isActive");
 
       if (user && user.isActive) {
         const session = await Session.findOne({
-          userId:   decoded.id,
+          userId: decoded.id,
+          token,
           isActive: true,
         }).select("_id");
 
         if (session) {
           req.user = {
-            id:        decoded.id,
-            role:      user.role,
+            id: decoded.id,
+            role: user.role,
             sessionId: String(session._id),
           };
         }
@@ -114,5 +116,5 @@ export const optionalProtect = asyncHandler(
     }
 
     next();
-  }
+  },
 );

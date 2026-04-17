@@ -18,9 +18,7 @@ const locationSchema = z.object({
   postcode: z.string().optional().default(""),
 
   country: z.string().default(""),
-  country_code: z
-    .string()
-    .optional(),
+  country_code: z.string().optional(),
 
   // Coordinates
   coordinates: z
@@ -33,7 +31,7 @@ const locationSchema = z.object({
 
 const bloodTypeEnum = z.enum(
   ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
-  { errorMap: () => ({ message: "Invalid blood type" }) }
+  { errorMap: () => ({ message: "Invalid blood type" }) },
 );
 
 const passwordSchema = z
@@ -48,32 +46,50 @@ const passwordSchema = z
 // ══════════════════════════════════════════════════════
 export const registerSchema = z.object({
   // required
-  name:      z.string().trim().min(2, "Name must be at least 2 characters").max(50),
-  email:     z.string().trim().email("Invalid email address").toLowerCase(),
-  phone:     z.string().trim().min(7, "Invalid phone number").max(15),
-  password:  passwordSchema,
+  name: z
+    .string({ required_error: "Name is required" })
+    .trim()
+    .min(2, "Name must be at least 2 characters")
+    .max(50),
+  email: z
+    .string({ required_error: "Email is required" })
+    .trim()
+    .email("Invalid email address")
+    .toLowerCase(),
+  phone: z
+    .string({ required_error: "Phone number is required" })
+    .trim()
+    .refine(
+      (val) => {
+        const digits = val.replace(/\D/g, "");
+        // 01XXXXXXXXX (11 digits) or 8801XXXXXXXXX (13 digits)
+        return (
+          /^(01[3-9]\d{8})$/.test(digits) || /^(8801[3-9]\d{8})$/.test(digits)
+        );
+      },
+      {
+        message:
+          "Enter a valid Bangladeshi phone number (e.g. 01712345678 or +8801712345678)",
+      },
+    ),
+  password: passwordSchema,
   bloodType: bloodTypeEnum,
-  location:  locationSchema,
+  location: locationSchema,
+  role: z.enum(["user", "donor"]).default("user"),
+  dateOfBirth: z.coerce.date({ required_error: "Date of birth is required" }),
+  avatar: z.string().trim().url("Invalid avatar URL").nullable().optional(),
 
   // optional donor info
-  age: z
-    .number()
-    .int()
-    .min(18, "Must be at least 18 years old")
-    .optional(),
+  age: z.number().int().min(18, "Must be at least 18 years old").optional(),
 
   gender: z.enum(["male", "female"]).optional(),
 
-  weight: z
-    .number()
-    .min(50, "Minimum weight is 50 kg")
-    .optional(),
-
+  weight: z.number().min(50, "Minimum weight is 50 kg").optional(),
   socialLinks: z
     .object({
-      facebook:  z.string().url("Invalid Facebook URL").nullable().optional(),
+      facebook: z.string().url("Invalid Facebook URL").nullable().optional(),
       instagram: z.string().url("Invalid Instagram URL").nullable().optional(),
-      twitter:   z.string().url("Invalid Twitter URL").nullable().optional(),
+      twitter: z.string().url("Invalid Twitter URL").nullable().optional(),
     })
     .optional(),
 });
@@ -88,10 +104,9 @@ export const loginSchema = z.object({
   identifier: z
     .string()
     .min(1, "Email or phone is required")
-    .refine(
-      (val) => emailRegex.test(val) || phoneRegex.test(val),
-      { message: "Enter a valid email or Bangladeshi phone number" }
-    ),
+    .refine((val) => emailRegex.test(val) || phoneRegex.test(val), {
+      message: "Enter a valid email or Bangladeshi phone number",
+    }),
 
   password: z.string().min(1, "Password is required"),
 
@@ -109,12 +124,12 @@ export const forgotPasswordSchema = z.object({
 //  RESET PASSWORD
 // ══════════════════════════════════════════════════════
 export const resetPasswordSchema = z.object({
-  token:       z.string().min(1, "Reset token is required"),
+  token: z.string().min(1, "Reset token is required"),
   newPassword: passwordSchema,
 });
 
 // ── Inferred TypeScript types ──────────────────────────
-export type RegisterInput       = z.infer<typeof registerSchema>;
-export type LoginInput          = z.infer<typeof loginSchema>;
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
-export type ResetPasswordInput  = z.infer<typeof resetPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

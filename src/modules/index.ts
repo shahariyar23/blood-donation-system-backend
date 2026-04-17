@@ -1,4 +1,6 @@
 export { default as User }            from "./user/User.schema";
+export { default as DeletedUser }     from "./user/DeletedUser.schema";
+export { default as Donor }           from "./donor/donor.model";
 export { default as Session }         from "./auth/Session.schema";
 export { default as UserActivity }    from "./user/UserActivity.schema";
 export { default as BloodRequest }    from "./bloodRequest/BloodRequest.schema";

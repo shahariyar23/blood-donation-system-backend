@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  uploadAvatar,
   register,
   login,
   logout,
@@ -7,8 +8,16 @@ import {
   forgotPassword,
   resetPassword,
   getAuthUser,
+  updateAuthUser,
+  changePassword,
+  getMySessions,
+  logoutOtherSessions,
+  logoutSingleSession,
+  deactivateAccount,
+  deleteAccount,
 } from "./auth.controller";
 import { protect } from "../../middleware/auth.middleware";
+import { upload } from "../../middleware/upload.middleware";
 import {
   authLimiter,
   forgotPasswordLimiter,
@@ -26,6 +35,9 @@ const router = Router();
 // ══════════════════════════════════════════════════════
 //  PUBLIC ROUTES
 // ══════════════════════════════════════════════════════
+
+// POST /api/auth/upload-avatar
+router.post("/upload-avatar", authLimiter, upload.avatar, uploadAvatar);
 
 // POST /api/auth/register
 router.post("/register", authLimiter, validate(registerSchema), register);
@@ -53,6 +65,27 @@ router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 // GET  /api/auth/me
 router.get("/me", protect, getAuthUser);
+
+// PATCH /api/auth/me
+router.patch("/me", protect, updateAuthUser);
+
+// POST /api/auth/change-password
+router.post("/change-password", protect, changePassword);
+
+// GET /api/auth/sessions
+router.get("/sessions", protect, getMySessions);
+
+// POST /api/auth/sessions/logout-others
+router.post("/sessions/logout-others", protect, logoutOtherSessions);
+
+// DELETE /api/auth/sessions/:sessionId
+router.delete("/sessions/:sessionId", protect, logoutSingleSession);
+
+// POST /api/auth/deactivate-account
+router.post("/deactivate-account", protect, deactivateAccount);
+
+// DELETE /api/auth/delete-account
+router.delete("/delete-account", protect, deleteAccount);
 
 // POST /api/auth/logout
 router.post("/logout", protect, logout);

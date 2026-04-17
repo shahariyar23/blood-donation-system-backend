@@ -7,13 +7,13 @@ export interface IUser extends Document {
   phone: string;
   passwordHash: string;
   age: number;
-  gender: "male" | "female";
-  avatar: string;
+  gender: "male" | "female" | "other";
+  dateOfBirth: Date | null;
+  avatar: string | null;
   bloodType: string;
   weight: number;
-  lastDonationDate: Date | null;
-  totalDonations: number;
-  isAvailable: boolean;
+  lastReceivedDate: Date | null;
+  totalReceived: number;
   location: {
     displayName: { type: String; default: "" };
     // Address breakdown
@@ -42,10 +42,11 @@ export interface IUser extends Document {
     instagram: string | null;
     twitter: string | null;
   };
-  role: "donor" | "recipient" | "admin";
+  role: "donor" | "user" | "admin";
   isVerified: boolean;
-  isDonorVerified: boolean;
   isActive: boolean;
+  isDeleted: boolean;
+  deletedAt: Date | null;
   communityFlags: number;
   passwordResetAttempts: number;
   passwordResetLockedUntil: Date | null;
@@ -103,9 +104,13 @@ const UserSchema = new Schema<IUser>(
       type: String,
       enum: ["male", "female", "other"],
     },
+    dateOfBirth: {
+      type: Date,
+      default: null,
+    },
     avatar: {
       type: String,
-      default: "",
+      default: null,
     },
     bloodType: {
       type: String,
@@ -115,18 +120,14 @@ const UserSchema = new Schema<IUser>(
       type: Number,
       min: [50, "Minimum weight is 50 kg"],
     },
-    lastDonationDate: {
+    lastReceivedDate: {
       type: Date,
       default: null,
     },
-    totalDonations: {
+    totalReceived: {
       type: Number,
       default: 0,
       min: 0,
-    },
-    isAvailable: {
-      type: Boolean,
-      default: false,
     },
     location: {
       displayName: { type: String, default: "" }, 
@@ -159,20 +160,24 @@ const UserSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ["donor", "recipient", "admin"],
-      default: "recipient",
+      enum: ["donor", "user", "admin"],
+      default: "user",
     },
     isVerified: {
-      type: Boolean,
-      default: false,
-    },
-    isDonorVerified: {
       type: Boolean,
       default: false,
     },
     isActive: {
       type: Boolean,
       default: true,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
     },
     communityFlags: {
       type: Number,
@@ -204,7 +209,7 @@ const UserSchema = new Schema<IUser>(
 // ── Indexes ────────────────────────────────────────────
 UserSchema.index({ bloodType: 1 });
 UserSchema.index({ "location.district": 1 });
-UserSchema.index({ isAvailable: 1, isDonorVerified: 1 });
 UserSchema.index({ role: 1, isActive: 1 });
+UserSchema.index({ isDeleted: 1, isActive: 1 });
 
 export default mongoose.model<IUser>("User", UserSchema);

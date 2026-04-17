@@ -1,16 +1,23 @@
 import { Request, Response } from "express";
+import { v2 as cloudinary }  from "cloudinary";
+import fs                    from "fs/promises";
 import { AuthService }       from "./auth.service";
 import { asyncHandler }      from "../../shared/utils/asyncHandler";
 import { ApiResponse }       from "../../shared/utils/ApiResponse";
 import { ApiError }          from "../../shared/utils/ApiError";
 import User                  from "../user/User.schema";
+import { Donor }             from "../index";
 
 // ── Cookie config ──────────────────────────────────────
+const isProd = process.env.NODE_ENV === "production";
+const sameSite: "lax" | "none" = isProd ? "none" : "lax";
 const cookieOptions = {
   httpOnly: true,
-  secure:   process.env.NODE_ENV === "production",
-  sameSite: "strict" as const,
+  secure:   isProd,
+  // Strict blocks cross-site refresh; allow for separate frontend domain in prod
+  sameSite,
   maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
+  path: "/",
 };
 
 // ── IP extractor ───────────────────────────────────────
@@ -28,6 +35,51 @@ const extractIp = (req: Request): string => {
     .replace("::ffff:", "")  // IPv4-mapped IPv6 → plain IPv4
     .replace("::1", "127.0.0.1"); // localhost IPv6 → localhost IPv4
 };
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/upload-avatar
+//  Upload avatar to Cloudinary (multer middleware required)
+// ══════════════════════════════════════════════════════
+export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => {
+  const file = (req as any).file as Express.Multer.File | undefined;
+
+  if (!file) {
+    throw new ApiError(400, "No avatar file uploaded");
+  }
+
+  const filePath = file.path;
+
+  try {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      throw new ApiError(500, "Cloudinary is not configured");
+    }
+
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
+
+    const result = await cloudinary.uploader.upload(filePath, {
+      folder: "bloodConnect/avatars",
+      resource_type: "image",
+    });
+
+    res
+      .status(201)
+      .json(
+        new ApiResponse(201, "Avatar uploaded successfully", {
+          avatarUrl: result.secure_url,
+        })
+      );
+  } finally {
+    await fs.unlink(filePath).catch(() => {});
+  }
+});
 
 // ══════════════════════════════════════════════════════
 //  POST /api/auth/register
@@ -75,7 +127,7 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
     userAgent
   );
 
-  res.clearCookie("refreshToken");
+  res.clearCookie("refreshToken", cookieOptions);
 
   res
     .status(200)
@@ -83,11 +135,119 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // ══════════════════════════════════════════════════════
+//  GET /api/auth/sessions
+// ══════════════════════════════════════════════════════
+export const getMySessions = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.getMySessions(
+      req.user!.id,
+      req.user!.sessionId,
+    );
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Active sessions fetched successfully", data));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/sessions/logout-others
+// ══════════════════════════════════════════════════════
+export const logoutOtherSessions = asyncHandler(
+  async (req: Request, res: Response) => {
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    const data = await AuthService.logoutOtherSessions(
+      req.user!.id,
+      req.user!.sessionId,
+      ip,
+      userAgent,
+    );
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "All other sessions logged out successfully", data));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  DELETE /api/auth/sessions/:sessionId
+// ══════════════════════════════════════════════════════
+export const logoutSingleSession = asyncHandler(
+  async (req: Request, res: Response) => {
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    const data = await AuthService.logoutSession(
+      req.user!.id,
+      req.params.sessionId,
+      req.user!.sessionId,
+      ip,
+      userAgent,
+    );
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Session logged out successfully", data));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/deactivate-account
+// ══════════════════════════════════════════════════════
+export const deactivateAccount = asyncHandler(
+  async (req: Request, res: Response) => {
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    await AuthService.deactivateAccount(
+      req.user!.id,
+      req.user!.sessionId,
+      ip,
+      userAgent,
+    );
+
+    res.clearCookie("refreshToken", cookieOptions);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Account deactivated successfully"));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  DELETE /api/auth/delete-account
+// ══════════════════════════════════════════════════════
+export const deleteAccount = asyncHandler(
+  async (req: Request, res: Response) => {
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+    const reason = (req.body?.reason as string) || "";
+
+    await AuthService.deleteAccount(
+      req.user!.id,
+      req.user!.sessionId,
+      ip,
+      userAgent,
+      reason,
+    );
+
+    res.clearCookie("refreshToken", cookieOptions);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Account deleted permanently"));
+  }
+);
+
+// ══════════════════════════════════════════════════════
 //  POST /api/auth/refresh-token
 // ══════════════════════════════════════════════════════
 export const refreshAccessToken = asyncHandler(
   async (req: Request, res: Response) => {
     const token = req.cookies?.refreshToken;
+    console.log("[token]: ",token);
 
     if (!token) {
       throw new ApiError(401, "No refresh token provided");
@@ -95,9 +255,12 @@ export const refreshAccessToken = asyncHandler(
 
     const data = await AuthService.refreshAccessToken(token);
 
+    // Set new refresh token cookie just in case, to refresh the expiration
+    res.cookie("refreshToken", data.refreshToken, cookieOptions);
+
     res
       .status(200)
-      .json(new ApiResponse(200, "Token refreshed successfully", data));
+      .json(new ApiResponse(200, "Token refreshed successfully", { accessToken: data.accessToken }));
   }
 );
 
@@ -151,15 +314,57 @@ export const resetPassword = asyncHandler(
 export const getAuthUser = asyncHandler(
   async (req: Request, res: Response) => {
     const user = await User.findById(req.user!.id).select(
-      "name email phone avatar role bloodType isVerified isDonorVerified isAvailable location"
+      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks lastReceivedDate totalReceived createdAt updatedAt",
     );
 
     if (!user) {
       throw new ApiError(401, "Unauthorized");
     }
+    const donor =
+      user.role === "donor"
+        ? await Donor.findOne({ userId: user._id }).select(
+            "isAvailable totalDonations lastDonationDate isVerified",
+          )
+        : null;
+
+    const payload = {
+      ...user.toObject(),
+      isAvailable: donor?.isAvailable ?? false,
+      isDonorVerified: donor?.isVerified ?? false,
+      totalDonations: donor?.totalDonations ?? 0,
+      lastDonationDate: donor?.lastDonationDate ?? null,
+    };
 
     res
       .status(200)
-      .json(new ApiResponse(200, "Authenticated user", user));
+      .json(new ApiResponse(200, "Authenticated user", payload));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  PUT /api/auth/me
+// ══════════════════════════════════════════════════════
+export const updateAuthUser = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.updateAuthUser(req.user!.id, req.body);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "User updated successfully", data));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/change-password
+// ══════════════════════════════════════════════════════
+export const changePassword = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { currentPassword, newPassword } = req.body;
+
+    await AuthService.changePassword(req.user!.id, currentPassword, newPassword);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Password changed successfully"));
   }
 );

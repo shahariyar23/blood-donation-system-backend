@@ -2,10 +2,39 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import User from "./User.schema";
+import { Donor, CommunityReport, UserActivity, DeletedUser } from "../index";
 import { ApiResponse, ApiError, asyncHandler, paginate } from "../../shared/utils";
 
 // ── Helper ─────────────────────────────────────────────
 const isValidId = (id: string) => mongoose.Types.ObjectId.isValid(id);
+
+const attachDonorFields = async (user: any) => {
+  if (!user) return null;
+
+  const base = typeof user.toObject === "function" ? user.toObject() : user;
+
+  if (base.role !== "donor") {
+    return {
+      ...base,
+      isAvailable: false,
+      isDonorVerified: false,
+      totalDonations: 0,
+      lastDonationDate: null,
+    };
+  }
+
+  const donor = await Donor.findOne({ userId: base._id }).select(
+    "isAvailable totalDonations lastDonationDate isVerified",
+  );
+
+  return {
+    ...base,
+    isAvailable: donor?.isAvailable ?? false,
+    isDonorVerified: donor?.isVerified ?? false,
+    totalDonations: donor?.totalDonations ?? 0,
+    lastDonationDate: donor?.lastDonationDate ?? null,
+  };
+};
 
 // ══════════════════════════════════════════════════════
 //  GET /users/me
@@ -22,9 +51,11 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "User not found");
   }
 
+  const payload = await attachDonorFields(user);
+
   res
     .status(200)
-    .json(new ApiResponse(200, "Profile fetched successfully", user));
+    .json(new ApiResponse(200, "Profile fetched successfully", payload));
 });
 
 // ══════════════════════════════════════════════════════
@@ -39,16 +70,18 @@ export const getUserById = asyncHandler(async (req: Request, res: Response) => {
   }
 
   const user = await User.findOne({ _id: id, isActive: true }).select(
-    "name avatar bloodType location isAvailable totalDonations lastDonationDate role isDonorVerified createdAt"
+    "name avatar bloodType location role createdAt lastReceivedDate totalReceived"
   );
 
   if (!user) {
     throw new ApiError(404, "User not found");
   }
 
+  const payload = await attachDonorFields(user);
+
   res
     .status(200)
-    .json(new ApiResponse(200, "User fetched successfully", user));
+    .json(new ApiResponse(200, "User fetched successfully", payload));
 });
 
 // ══════════════════════════════════════════════════════
@@ -68,6 +101,8 @@ export const updateMe = asyncHandler(async (req: Request, res: Response) => {
     "passwordHash",
     "security",
     "totalDonations",
+    "lastReceivedDate",
+    "totalReceived",
   ];
   forbidden.forEach((field) => delete req.body[field]);
 
@@ -81,9 +116,11 @@ export const updateMe = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(404, "User not found");
   }
 
+  const payload = await attachDonorFields(updated);
+
   res
     .status(200)
-    .json(new ApiResponse(200, "Profile updated successfully", updated));
+    .json(new ApiResponse(200, "Profile updated successfully", payload));
 });
 
 // ══════════════════════════════════════════════════════
@@ -118,7 +155,7 @@ export const updateAvatar = asyncHandler(async (req: Request, res: Response) => 
 export const toggleAvailability = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user?.id;
 
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select("role");
 
   if (!user) {
     throw new ApiError(404, "User not found");
@@ -128,12 +165,18 @@ export const toggleAvailability = asyncHandler(async (req: Request, res: Respons
     throw new ApiError(403, "Only donors can toggle availability");
   }
 
-  user.isAvailable = !user.isAvailable;
-  await user.save();
+  const donor = await Donor.findOne({ userId: user._id });
+
+  if (!donor) {
+    throw new ApiError(404, "Donor profile not found");
+  }
+
+  donor.isAvailable = !donor.isAvailable;
+  await donor.save();
 
   res.status(200).json(
-    new ApiResponse(200, `You are now ${user.isAvailable ? "available" : "unavailable"} for donation`, {
-      isAvailable: user.isAvailable,
+    new ApiResponse(200, `You are now ${donor.isAvailable ? "available" : "unavailable"} for donation`, {
+      isAvailable: donor.isAvailable,
     })
   );
 });
@@ -188,12 +231,17 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
 export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user?.id;
 
-  await User.findByIdAndUpdate(userId, {
-    $set: {
-      isActive:    false,
-      isAvailable: false,
-    },
-  });
+  await Promise.all([
+    User.findByIdAndUpdate(userId, {
+      $set: {
+        isActive: false,
+      },
+    }),
+    Donor.findOneAndUpdate(
+      { userId },
+      { $set: { isAvailable: false } },
+    ),
+  ]);
 
   res
     .status(200)
@@ -208,27 +256,61 @@ export const getDonors = asyncHandler(async (req: Request, res: Response) => {
   const { bloodType, district, city } = req.query;
   const { skip, limit, page, totalPages } = paginate(req.query);
 
-  const filter: Record<string, any> = {
-    role:            "donor",
-    isAvailable:     true,
-    isActive:        true,
-    isDonorVerified: true,
+  const userMatch: Record<string, any> = {
+    role:     "donor",
+    isActive: true,
   };
 
-  if (bloodType) filter.bloodType                      = bloodType;
-  if (district)  filter["location.state_district"]     = district;
-  if (city)      filter["location.city"]               = city;
+  if (bloodType) userMatch.bloodType = bloodType;
+  if (district)  userMatch["location.state_district"] = district;
+  if (city)      userMatch["location.city"] = city;
 
-  const [donors, total] = await Promise.all([
-    User.find(filter)
-      .select(
-        "name avatar bloodType location isAvailable totalDonations lastDonationDate createdAt"
-      )
-      .skip(skip)
-      .limit(limit)
-      .sort({ totalDonations: -1 }),
-    User.countDocuments(filter),
+  const donorMatch: Record<string, any> = {
+    "donor.isAvailable": true,
+    "donor.isVerified": true,
+  };
+
+  const basePipeline = [
+    { $match: userMatch },
+    {
+      $lookup: {
+        from: "donors",
+        localField: "_id",
+        foreignField: "userId",
+        as: "donor",
+      },
+    },
+    { $unwind: "$donor" },
+    { $match: donorMatch },
+  ];
+
+  const [donors, totalResult] = await Promise.all([
+    User.aggregate([
+      ...basePipeline,
+      { $sort: { "donor.totalDonations": -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          name: 1,
+          avatar: 1,
+          bloodType: 1,
+          location: 1,
+          createdAt: 1,
+          isAvailable: "$donor.isAvailable",
+          totalDonations: "$donor.totalDonations",
+          lastDonationDate: "$donor.lastDonationDate",
+          isDonorVerified: "$donor.isVerified",
+        },
+      },
+    ]),
+    User.aggregate([
+      ...basePipeline,
+      { $count: "total" },
+    ]),
   ]);
+
+  const total = totalResult[0]?.total || 0;
 
   res.status(200).json(
     new ApiResponse(200, "Donors fetched successfully", {
@@ -344,18 +426,179 @@ export const verifyDonor = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(400, "User is not a donor");
   }
 
-  if (user.isDonorVerified) {
+  const donor = await Donor.findOne({ userId: user._id });
+
+  if (!donor) {
+    throw new ApiError(404, "Donor profile not found");
+  }
+
+  if (donor.isVerified) {
     throw new ApiError(400, "Donor is already verified");
   }
 
-  user.isDonorVerified = true;
-  await user.save();
+  donor.isVerified = true;
+  await donor.save();
 
   res.status(200).json(
     new ApiResponse(200, "Donor verified successfully", {
       id:              user._id,
       name:            user.name,
-      isDonorVerified: user.isDonorVerified,
+      isDonorVerified: donor.isVerified,
     })
   );
 });
+
+// ══════════════════════════════════════════════════════
+//  POST /users/:id/report
+//  Report a user (community flag)
+// ══════════════════════════════════════════════════════
+export const reportUser = asyncHandler(async (req: Request, res: Response) => {
+  const reportedUserId = req.params.id;
+  const reporterId = req.user!.id;
+  const { reason, description } = req.body as {
+    reason: "fake_profile" | "no_response" | "wrong_info" | "abusive" | "other";
+    description?: string;
+  };
+
+  if (!isValidId(reportedUserId)) {
+    throw new ApiError(400, "Invalid user ID");
+  }
+
+  if (reportedUserId === reporterId) {
+    throw new ApiError(400, "You cannot report yourself");
+  }
+
+  const allowedReasons = [
+    "fake_profile",
+    "no_response",
+    "wrong_info",
+    "abusive",
+    "other",
+  ];
+
+  if (!allowedReasons.includes(reason)) {
+    throw new ApiError(400, "Invalid report reason");
+  }
+
+  const reportedUser = await User.findById(reportedUserId).select("isActive");
+  if (!reportedUser || !reportedUser.isActive) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const report = await CommunityReport.create({
+    reportedBy: reporterId,
+    reportedUser: reportedUserId,
+    reason,
+    description: description || "",
+  });
+
+  const updated = await User.findByIdAndUpdate(
+    reportedUserId,
+    { $inc: { communityFlags: 1 } },
+    { new: true },
+  ).select("communityFlags");
+
+  await UserActivity.create({
+    userId: reporterId,
+    sessionId: req.user!.sessionId,
+    event: "report_submit",
+    meta: { reportedUserId, reason, reportId: report._id },
+    ip: req.ip,
+    userAgent: req.headers["user-agent"] || "",
+    timestamp: new Date(),
+  }).catch(() => {});
+
+  res.status(201).json(
+    new ApiResponse(201, "Report submitted successfully", {
+      reportId: report._id,
+      communityFlags: updated?.communityFlags ?? 0,
+    }),
+  );
+});
+
+// ══════════════════════════════════════════════════════
+//  PATCH /admin/users/:id/community-flags
+//  Adjust community flags (admin)
+// ══════════════════════════════════════════════════════
+export const updateCommunityFlags = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { action, value } = req.body as {
+      action: "increment" | "decrement" | "set" | "reset";
+      value?: number;
+    };
+
+    if (!isValidId(id)) {
+      throw new ApiError(400, "Invalid user ID");
+    }
+
+    if (!action) {
+      throw new ApiError(400, "Action is required");
+    }
+
+    let updated: any = null;
+
+    switch (action) {
+      case "increment": {
+        const delta = typeof value === "number" ? value : 1;
+        if (delta <= 0) throw new ApiError(400, "Value must be > 0");
+        updated = await User.findByIdAndUpdate(
+          id,
+          { $inc: { communityFlags: delta } },
+          { new: true },
+        ).select("communityFlags");
+        break;
+      }
+      case "decrement": {
+        const delta = typeof value === "number" ? value : 1;
+        if (delta <= 0) throw new ApiError(400, "Value must be > 0");
+        updated = await User.findByIdAndUpdate(
+          id,
+          { $inc: { communityFlags: -delta } },
+          { new: true },
+        ).select("communityFlags");
+
+        if (updated && updated.communityFlags < 0) {
+          updated = await User.findByIdAndUpdate(
+            id,
+            { $set: { communityFlags: 0 } },
+            { new: true },
+          ).select("communityFlags");
+        }
+        break;
+      }
+      case "set": {
+        if (typeof value !== "number" || value < 0) {
+          throw new ApiError(400, "Value must be a non-negative number");
+        }
+        updated = await User.findByIdAndUpdate(
+          id,
+          { $set: { communityFlags: value } },
+          { new: true },
+        ).select("communityFlags");
+        break;
+      }
+      case "reset": {
+        updated = await User.findByIdAndUpdate(
+          id,
+          { $set: { communityFlags: 0 } },
+          { new: true },
+        ).select("communityFlags");
+        break;
+      }
+      default:
+        throw new ApiError(400, "Invalid action");
+    }
+
+    if (!updated) {
+      throw new ApiError(404, "User not found");
+    }
+
+    res.status(200).json(
+      new ApiResponse(200, "Community flags updated", {
+        id,
+        communityFlags: updated.communityFlags,
+      }),
+    );
+  },
+);

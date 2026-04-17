@@ -2,12 +2,15 @@ import cors, { CorsOptions } from "cors";
 import { ApiError }          from "../shared/utils/ApiError";
 
 // ── Allowed origins ────────────────────────────────────
-const allowedOrigins: string[] = [
-  process.env.CLIENT_URL || "http://localhost:5173",
+const rawOrigins =
+  process.env.CLIENT_URLS ||
+  process.env.CLIENT_URL ||
+  "http://localhost:5173,http://localhost:3000";
 
-  // add more origins here if needed
-  // "https://bloodconnect.vercel.app",
-];
+const allowedOrigins: string[] = rawOrigins
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const corsOptions: CorsOptions = {
   origin: (

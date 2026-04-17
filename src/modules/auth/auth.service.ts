@@ -2,9 +2,13 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import UAParser from "ua-parser-js";
 import geoip from "geoip-lite";
-import User from "../user/User.schema";
-import Session from "./Session.schema";
-import UserActivity from "../user/UserActivity.schema";
+import {
+  User,
+  DeletedUser,
+  Session,
+  UserActivity,
+  Donor,
+} from "../index";
 import {
   ApiError,
   generateAccessToken,
@@ -61,6 +65,100 @@ export class AuthService {
     return ip.replace("::ffff:", "");
   }
 
+  // ── Keep stored active session count in sync ─────────
+  private static async syncActiveSessionCount(userId: string) {
+    const activeSessions = await Session.countDocuments({
+      userId,
+      isActive: true,
+    });
+
+    await User.findByIdAndUpdate(userId, {
+      $set: { "security.activeSessions": activeSessions },
+    });
+
+    return activeSessions;
+  }
+
+  // ── Session helpers for frontend settings page ───────
+  private static formatSessionDevice(session: any) {
+    const browserName = session.browser?.name || "Unknown browser";
+    const deviceModel = session.device?.model;
+    const deviceBrand = session.device?.brand;
+    const deviceType = session.device?.type;
+    const osName = session.device?.os;
+
+    const hardwareLabel =
+      (deviceModel && deviceModel !== "unknown" && deviceModel) ||
+      (deviceBrand && deviceBrand !== "unknown" && deviceBrand) ||
+      (deviceType &&
+        deviceType !== "unknown" &&
+        deviceType.charAt(0).toUpperCase() + deviceType.slice(1)) ||
+      (osName && osName !== "unknown" && osName) ||
+      "Unknown device";
+
+    return `${hardwareLabel} · ${browserName}`;
+  }
+
+  private static formatSessionLocation(session: any) {
+    const city =
+      session.location?.city ||
+      session.location?.district ||
+      session.location?.division ||
+      "Unknown";
+
+    const country =
+      session.location?.countryCode || session.location?.country || "";
+
+    return country ? `${city}, ${country}` : city;
+  }
+
+  private static formatLastActive(lastActiveAt: Date) {
+    const diffMs = Date.now() - new Date(lastActiveAt).getTime();
+
+    if (diffMs < 60 * 1000) return "Now";
+
+    const minutes = Math.floor(diffMs / (60 * 1000));
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+
+    const hours = Math.floor(diffMs / (60 * 60 * 1000));
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+
+    const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (days < 7) return `${days} day${days === 1 ? "" : "s"} ago`;
+
+    return new Date(lastActiveAt).toISOString();
+  }
+
+  private static mapSessionForResponse(session: any, currentSessionId: string) {
+    return {
+      id: String(session._id),
+      device: this.formatSessionDevice(session),
+      location: this.formatSessionLocation(session),
+      lastActive: this.formatLastActive(session.lastActiveAt),
+      lastActiveAt: session.lastActiveAt,
+      current: String(session._id) === currentSessionId,
+      loginMethod: session.loginMethod,
+      browser: {
+        name: session.browser?.name || "unknown",
+        version: session.browser?.version || "unknown",
+        engine: session.browser?.engine || "unknown",
+      },
+      deviceDetails: {
+        type: session.device?.type || "unknown",
+        brand: session.device?.brand || "unknown",
+        model: session.device?.model || "unknown",
+        os: session.device?.os || "unknown",
+        osVersion: session.device?.osVersion || "unknown",
+      },
+      network: {
+        ip: session.network?.ip || "",
+        type: session.network?.type || "unknown",
+        effectiveType: session.network?.effectiveType || "unknown",
+      },
+      createdAt: session.createdAt,
+    };
+  }
+
   // ══════════════════════════════════════════════════════
   //  VPN DETECTION
   //  Frontend sends location → compare with IP location
@@ -113,6 +211,7 @@ export class AuthService {
       name,
       email,
       phone,
+      avatar,
       password,
       bloodType,
       age,
@@ -121,6 +220,7 @@ export class AuthService {
       dateOfBirth,
       location,
       socialLinks,
+      role,
     } = body;
 
     // ── VPN check ──────────────────────────────────────
@@ -163,16 +263,13 @@ export class AuthService {
       email: email.toLowerCase(),
       phone,
       passwordHash,
+      avatar: avatar || null,
       age: age || null,
       gender: gender || null,
       bloodType,
       weight: weight || null,
-      dateOfBirth: dateOfBirth || null,
-      role: "donor",
-      isAvailable: false,
-      isDonorVerified: false,
-      totalDonations: 0,
-      lastDonationDate: null,
+      dateOfBirth,
+      role,
       location: userLocation,
       socialLinks: {
         facebook: socialLinks?.facebook || null,
@@ -180,6 +277,39 @@ export class AuthService {
         twitter: socialLinks?.twitter || null,
       },
     });
+
+    // ── Create donor if requested ──────────────────────
+    if (role == "donor") {
+      try {
+        const lat = userLocation.coordinates.lat;
+        const lng = userLocation.coordinates.lng;
+
+        await Donor.create({
+          userId: user._id,
+          bloodType,
+          isAvailable: false,
+          location: {
+            displayName: userLocation.displayName,
+            city: userLocation.city,
+            state: userLocation.state,
+            country: userLocation.country,
+            coordinates:
+              typeof lat === "number" && typeof lng === "number"
+                ? {
+                    type: "Point",
+                    coordinates: [lng, lat],
+                  }
+                : null,
+          },
+        });
+      } catch (error) {
+        await User.findByIdAndDelete(user._id);
+        throw new ApiError(
+          500,
+          "Failed to create donor profile. Registration was rolled back.",
+        );
+      }
+    }
 
     // ── Log activity ───────────────────────────────────
     await UserActivity.create({
@@ -206,7 +336,6 @@ export class AuthService {
   // ══════════════════════════════════════════════════════
   static async login(body: any, ip: string, userAgent: string) {
     const { identifier, password, location } = body;
-
     const cleanedIp = this.cleanIp(ip);
 
     // ── VPN check ──────────────────────────────────────
@@ -225,7 +354,7 @@ export class AuthService {
     const user = await User.findOne(query).select("+passwordHash");
 
     if (!user) {
-      throw new ApiError(401, "Invalid credentials");
+      throw new ApiError(401, "Your Password is wrong");
     }
 
     if (!user.isActive) {
@@ -265,7 +394,7 @@ export class AuthService {
         timestamp: new Date(),
       }).catch(() => {});
 
-      throw new ApiError(401, "Invalid credentials");
+      throw new ApiError(401, "Your Password is wrong");
     }
 
     // ── Reset security fields on success ───────────────
@@ -359,6 +488,15 @@ export class AuthService {
       timestamp: new Date(),
     }).catch(() => {});
 
+    await this.syncActiveSessionCount(String(user._id));
+
+    const donor =
+      user.role === "donor"
+        ? await Donor.findOne({ userId: user._id }).select(
+            "isAvailable totalDonations lastDonationDate isVerified",
+          )
+        : null;
+
     return {
       refreshToken,
       data: {
@@ -371,9 +509,13 @@ export class AuthService {
           role: user.role,
           avatar: user.avatar,
           bloodType: user.bloodType,
-          isAvailable: user.isAvailable,
+          lastReceivedDate: user.lastReceivedDate ?? null,
+          totalReceived: user.totalReceived ?? 0,
+          isAvailable: donor?.isAvailable ?? false,
           isVerified: user.isVerified,
-          isDonorVerified: user.isDonorVerified,
+          isDonorVerified: donor?.isVerified ?? false,
+          totalDonations: donor?.totalDonations ?? 0,
+          lastDonationDate: donor?.lastDonationDate ?? null,
           location: user.location,
         },
       },
@@ -409,6 +551,120 @@ export class AuthService {
       userAgent,
       timestamp: new Date(),
     }).catch(() => {});
+
+    await this.syncActiveSessionCount(userId);
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  GET MY ACTIVE SESSIONS
+  // ══════════════════════════════════════════════════════
+  static async getMySessions(userId: string, currentSessionId: string) {
+    const sessions = await Session.find({
+      userId,
+      isActive: true,
+    })
+      .sort({ lastActiveAt: -1, createdAt: -1 })
+      .select(
+        "_id device browser network location loginMethod lastActiveAt createdAt",
+      );
+
+    return {
+      totalSessions: sessions.length,
+      currentSessionId,
+      sessions: sessions.map((session) =>
+        this.mapSessionForResponse(session, currentSessionId),
+      ),
+    };
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  LOGOUT ONE OTHER SESSION
+  // ══════════════════════════════════════════════════════
+  static async logoutSession(
+    userId: string,
+    targetSessionId: string,
+    currentSessionId: string,
+    ip: string,
+    userAgent: string,
+  ) {
+    if (targetSessionId === currentSessionId) {
+      throw new ApiError(
+        400,
+        "Use the normal logout endpoint to log out your current session.",
+      );
+    }
+
+    const session = await Session.findOne({
+      _id: targetSessionId,
+      userId,
+      isActive: true,
+    }).select("_id");
+
+    if (!session) {
+      throw new ApiError(404, "Session not found");
+    }
+
+    await Session.findByIdAndUpdate(targetSessionId, {
+      $set: { isActive: false, loggedOutAt: new Date() },
+    });
+
+    const activeSessions = await this.syncActiveSessionCount(userId);
+
+    await UserActivity.create({
+      userId,
+      sessionId: session._id,
+      event: "logout",
+      meta: { scope: "single-other-session" },
+      ip: this.cleanIp(ip),
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+
+    return {
+      loggedOutSessionId: targetSessionId,
+      activeSessions,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  LOGOUT ALL OTHER SESSIONS
+  // ══════════════════════════════════════════════════════
+  static async logoutOtherSessions(
+    userId: string,
+    currentSessionId: string,
+    ip: string,
+    userAgent: string,
+  ) {
+    const result = await Session.updateMany(
+      {
+        userId,
+        isActive: true,
+        _id: { $ne: currentSessionId },
+      },
+      {
+        $set: { isActive: false, loggedOutAt: new Date() },
+      },
+    );
+
+    const activeSessions = await this.syncActiveSessionCount(userId);
+
+    await UserActivity.create({
+      userId,
+      sessionId: currentSessionId,
+      event: "logout",
+      meta: {
+        scope: "all-other-sessions",
+        loggedOutCount: result.modifiedCount || 0,
+      },
+      ip: this.cleanIp(ip),
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+
+    return {
+      loggedOutCount: result.modifiedCount || 0,
+      activeSessions,
+    };
   }
 
   // ══════════════════════════════════════════════════════
@@ -418,6 +674,7 @@ export class AuthService {
   static async refreshAccessToken(token: string) {
     // ── Verify JWT signature ───────────────────────────
     let decoded: any;
+    console.log("[token]: ", token);
     try {
       decoded = verifyRefreshToken(token);
     } catch (err: any) {
@@ -431,13 +688,19 @@ export class AuthService {
     }
 
     // ── Find active session + select hidden fields ─────
+    // Since a user can have multiple active sessions (e.g. phone and laptop),
+    // we need to find the specific session that matches this refresh token.
     const session = await Session.findOne({
       userId: decoded.id,
-      isActive: true,
-    }).select("+token +refreshToken");
+      refreshToken: token,
+    }).select("+token +refreshToken +isActive +refreshTokenExpiresAt");
 
     if (!session) {
-      throw new ApiError(401, "Session not found. Please log in again.");
+      throw new ApiError(401, "Session not found or token revoked. Please log in again.");
+    }
+
+    if (!session.isActive) {
+      throw new ApiError(401, "Session has been logged out. Please log in again.");
     }
 
     // ── Check refresh token expiry ─────────────────────
@@ -449,11 +712,6 @@ export class AuthService {
         401,
         "Refresh token has expired. Please log in again.",
       );
-    }
-
-    // ── Validate token matches the session ────────────
-    if (session.refreshToken !== token) {
-      throw new ApiError(401, "Refresh token mismatch. Please log in again.");
     }
 
     // ── Check user still exists ───────────────────────
@@ -474,7 +732,7 @@ export class AuthService {
       },
     });
 
-    return { accessToken: newAccessToken };
+    return { accessToken: newAccessToken, refreshToken: session.refreshToken };
   }
 
   // ══════════════════════════════════════════════════════
@@ -530,7 +788,7 @@ export class AuthService {
 
     // ── Send raw token in email ────────────────────────
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
-
+console.log(resetUrl)
     await sendEmail({
       to: user.email,
       subject: "BloodConnect — Password Reset",
@@ -610,6 +868,178 @@ export class AuthService {
       userId: user._id,
       event: "password_reset",
       meta: {},
+      ip: this.cleanIp(ip),
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  UPDATE AUTH USER
+  // ══════════════════════════════════════════════════════
+  static async updateAuthUser(userId: string, body: any) {
+    const user = await User.findById(userId);
+    if (!user) throw new ApiError(404, "User not found");
+
+    const allowedUpdates = [
+      "name",
+      "phone",
+      "bloodType",
+      "gender",
+      "age",
+      "weight",
+      "dateOfBirth",
+      "location",
+      "socialLinks",
+    ];
+
+    allowedUpdates.forEach((field) => {
+      if (body[field] !== undefined) {
+        (user as any)[field] = body[field];
+      }
+    });
+
+    await user.save();
+
+    // Also update Donor collection if they are a donor
+    if (user.role === "donor") {
+      const donorUpdate: any = {};
+      if (body.bloodType) donorUpdate.bloodType = body.bloodType;
+      if (body.isAvailable !== undefined) donorUpdate.isAvailable = body.isAvailable;
+      if (body.location) donorUpdate.location = body.location;
+      
+      if (Object.keys(donorUpdate).length > 0) {
+        await Donor.findOneAndUpdate({ userId: user._id }, { $set: donorUpdate });
+      }
+    }
+
+    const refreshedUser = await User.findById(user._id).select(
+      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks lastReceivedDate totalReceived",
+    );
+
+    if (!refreshedUser) throw new ApiError(404, "User not found");
+
+    const donor =
+      refreshedUser.role === "donor"
+        ? await Donor.findOne({ userId: refreshedUser._id }).select(
+            "isAvailable totalDonations lastDonationDate isVerified",
+          )
+        : null;
+
+    return {
+      ...refreshedUser.toObject(),
+      lastReceivedDate: refreshedUser.lastReceivedDate ?? null,
+      totalReceived: refreshedUser.totalReceived ?? 0,
+      isAvailable: donor?.isAvailable ?? false,
+      isDonorVerified: donor?.isVerified ?? false,
+      totalDonations: donor?.totalDonations ?? 0,
+      lastDonationDate: donor?.lastDonationDate ?? null,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  CHANGE PASSWORD
+  // ══════════════════════════════════════════════════════
+  static async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await User.findById(userId).select("+passwordHash");
+    if (!user) throw new ApiError(404, "User not found");
+
+    const isMatch = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isMatch) throw new ApiError(400, "Incorrect current password");
+
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    user.security.passwordChangedAt = new Date();
+    await user.save();
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  DEACTIVATE ACCOUNT
+  // ══════════════════════════════════════════════════════
+  static async deactivateAccount(
+    userId: string,
+    sessionId: string,
+    ip: string,
+    userAgent: string,
+  ) {
+    const user = await User.findById(userId);
+    if (!user) throw new ApiError(404, "User not found");
+
+    user.isActive = false;
+    user.security.activeSessions = 0;
+    await user.save();
+
+    await Promise.all([
+      Session.updateMany(
+        { userId, isActive: true },
+        { $set: { isActive: false, loggedOutAt: new Date() } },
+      ),
+      Donor.findOneAndUpdate(
+        { userId },
+        { $set: { isAvailable: false } },
+      ),
+    ]);
+
+    await UserActivity.create({
+      userId,
+      sessionId,
+      event: "profile_update",
+      meta: { action: "deactivate_account" },
+      ip: this.cleanIp(ip),
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  DELETE ACCOUNT PERMANENTLY
+  // ══════════════════════════════════════════════════════
+  static async deleteAccount(
+    userId: string,
+    sessionId: string,
+    ip: string,
+    userAgent: string,
+    reason?: string,
+  ) {
+    const user = await User.findById(userId);
+    if (!user) throw new ApiError(404, "User not found");
+
+    const donor = await Donor.findOne({ userId });
+
+    await DeletedUser.create({
+      userId: user._id,
+      deletedBy: user._id,
+      reason: reason?.trim() || "user_requested",
+      userSnapshot: user.toObject(),
+      donorSnapshot: donor ? donor.toObject() : null,
+      meta: {
+        ip: this.cleanIp(ip),
+        userAgent,
+      },
+      deletedAt: new Date(),
+    });
+
+    user.isActive = false;
+    user.isDeleted = true;
+    user.deletedAt = new Date();
+    user.security.activeSessions = 0;
+    await user.save();
+
+    await Promise.all([
+      Session.updateMany(
+        { userId, isActive: true },
+        { $set: { isActive: false, loggedOutAt: new Date() } },
+      ),
+      Donor.findOneAndUpdate(
+        { userId },
+        { $set: { isAvailable: false } },
+      ),
+    ]);
+
+    await UserActivity.create({
+      userId,
+      sessionId,
+      event: "account_delete",
+      meta: { action: "soft_delete", reason: reason || "" },
       ip: this.cleanIp(ip),
       userAgent,
       timestamp: new Date(),
