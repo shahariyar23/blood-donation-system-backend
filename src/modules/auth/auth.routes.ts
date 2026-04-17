@@ -7,6 +7,8 @@ import {
   refreshAccessToken,
   forgotPassword,
   resetPassword,
+  sendEmailOtp,
+  verifyEmailOtp,
   getAuthUser,
   updateAuthUser,
   changePassword,
@@ -28,6 +30,8 @@ import {
   loginSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  sendOtpSchema,
+  verifyOtpSchema,
 } from "./auth.validation";
 
 const router = Router();
@@ -58,6 +62,12 @@ router.post(
 
 // POST /api/auth/reset-password
 router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
+
+// POST /api/auth/send-otp
+router.post("/send-otp", authLimiter, validate(sendOtpSchema), sendEmailOtp);
+
+// POST /api/auth/verify-otp
+router.post("/verify-otp", authLimiter, validate(verifyOtpSchema), verifyEmailOtp);
 
 // ══════════════════════════════════════════════════════
 //  PROTECTED ROUTES  (require valid JWT)

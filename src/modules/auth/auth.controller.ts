@@ -237,7 +237,7 @@ export const deleteAccount = asyncHandler(
 
     res
       .status(200)
-      .json(new ApiResponse(200, "Account deleted permanently"));
+      .json(new ApiResponse(200, "Account deleted successfully"));
   }
 );
 
@@ -305,6 +305,40 @@ export const resetPassword = asyncHandler(
           "Password reset successfully. Please log in again."
         )
       );
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/send-otp
+// ══════════════════════════════════════════════════════
+export const sendEmailOtp = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email } = req.body;
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    const data = await AuthService.sendEmailVerificationOtp(email, ip, userAgent);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "OTP sent successfully", data));
+  }
+);
+
+// ══════════════════════════════════════════════════════
+//  POST /api/auth/verify-otp
+// ══════════════════════════════════════════════════════
+export const verifyEmailOtp = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { email, otp } = req.body;
+    const ip        = extractIp(req);
+    const userAgent = req.headers["user-agent"] || "";
+
+    const data = await AuthService.verifyEmailOtp(email, otp, ip, userAgent);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Email verified successfully", data));
   }
 );
 

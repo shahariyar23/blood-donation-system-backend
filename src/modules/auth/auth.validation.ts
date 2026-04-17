@@ -85,6 +85,9 @@ export const registerSchema = z.object({
   gender: z.enum(["male", "female"]).optional(),
 
   weight: z.number().min(50, "Minimum weight is 50 kg").optional(),
+  isAvailable: z.boolean().optional(),
+  totalDonations: z.number().min(0).optional(),
+  lastDonationDate: z.coerce.date().optional().nullable(),
   socialLinks: z
     .object({
       facebook: z.string().url("Invalid Facebook URL").nullable().optional(),
@@ -128,8 +131,24 @@ export const resetPasswordSchema = z.object({
   newPassword: passwordSchema,
 });
 
+// ══════════════════════════════════════════════════════
+//  EMAIL OTP
+// ══════════════════════════════════════════════════════
+export const sendOtpSchema = z.object({
+  email: z.string().trim().email("Invalid email address").toLowerCase(),
+});
+
+export const verifyOtpSchema = z.object({
+  email: z.string().trim().email("Invalid email address").toLowerCase(),
+  otp: z
+    .string()
+    .regex(/^\d{6}$/, "OTP must be a 6-digit code"),
+});
+
 // ── Inferred TypeScript types ──────────────────────────
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type SendOtpInput = z.infer<typeof sendOtpSchema>;
+export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;

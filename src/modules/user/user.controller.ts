@@ -230,13 +230,35 @@ export const changePassword = asyncHandler(async (req: Request, res: Response) =
 // ══════════════════════════════════════════════════════
 export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = (req as any).user?.id;
+  const reason = (req.body?.reason as string) || "";
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const donor = await Donor.findOne({ userId });
+
+  await DeletedUser.create({
+    userId: user._id,
+    deletedBy: user._id,
+    reason: reason.trim() || "user_requested",
+    userSnapshot: user.toObject(),
+    donorSnapshot: donor ? donor.toObject() : null,
+    meta: {
+      ip: req.ip || "",
+      userAgent: req.headers["user-agent"] || "",
+    },
+    deletedAt: new Date(),
+  });
+
+  user.isActive = false;
+  user.isDeleted = true;
+  user.deletedAt = new Date();
+  user.security.activeSessions = 0;
+  await user.save();
 
   await Promise.all([
-    User.findByIdAndUpdate(userId, {
-      $set: {
-        isActive: false,
-      },
-    }),
     Donor.findOneAndUpdate(
       { userId },
       { $set: { isAvailable: false } },
@@ -245,7 +267,7 @@ export const deleteMe = asyncHandler(async (req: Request, res: Response) => {
 
   res
     .status(200)
-    .json(new ApiResponse(200, "Account deactivated successfully"));
+    .json(new ApiResponse(200, "Account deleted successfully"));
 });
 
 // ══════════════════════════════════════════════════════

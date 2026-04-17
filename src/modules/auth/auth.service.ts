@@ -79,6 +79,54 @@ export class AuthService {
     return activeSessions;
   }
 
+  private static generateOtpCode(): string {
+    return crypto.randomInt(100000, 1000000).toString();
+  }
+
+  private static hashOtp(code: string): string {
+    return crypto.createHash("sha256").update(code).digest("hex");
+  }
+
+  private static async issueEmailVerificationOtp(
+    user: any,
+    ip: string,
+    userAgent: string,
+  ) {
+    const code = this.generateOtpCode();
+    const codeHash = this.hashOtp(code);
+
+    user.emailVerificationCode = codeHash;
+    user.emailVerificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+    user.emailVerificationAttempts = 0;
+    user.emailVerificationBlockedUntil = null;
+    await user.save();
+
+    await sendEmail({
+      to: user.email,
+      subject: "BloodConnect — Verify your email",
+      html: `
+        <h2>Email Verification</h2>
+        <p>Hi ${user.name},</p>
+        <p>Your verification code is:</p>
+        <div style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</div>
+        <p>This code expires in <strong>10 minutes</strong>.</p>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>— BloodConnect Team</p>
+      `,
+    });
+
+    await UserActivity.create({
+      userId: user._id,
+      event: "profile_update",
+      meta: { action: "send_email_otp" },
+      ip,
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+
+    return { email: user.email, expiresAt: user.emailVerificationExpires };
+  }
+
   // ── Session helpers for frontend settings page ───────
   private static formatSessionDevice(session: any) {
     const browserName = session.browser?.name || "Unknown browser";
@@ -218,6 +266,9 @@ export class AuthService {
       gender,
       weight,
       dateOfBirth,
+      isAvailable,
+      totalDonations,
+      lastDonationDate,
       location,
       socialLinks,
       role,
@@ -270,6 +321,7 @@ export class AuthService {
       weight: weight || null,
       dateOfBirth,
       role,
+      isVerified: false,
       location: userLocation,
       socialLinks: {
         facebook: socialLinks?.facebook || null,
@@ -278,37 +330,29 @@ export class AuthService {
       },
     });
 
-    // ── Create donor if requested ──────────────────────
-    if (role == "donor") {
-      try {
-        const lat = userLocation.coordinates.lat;
-        const lng = userLocation.coordinates.lng;
+    // ── Create donor if requested + send OTP ───────────
+    try {
+      if (role == "donor") {
+        const donations = typeof totalDonations === "number" ? totalDonations : 0;
+        const lastDonation = donations > 0 ? lastDonationDate || null : null;
 
         await Donor.create({
           userId: user._id,
-          bloodType,
-          isAvailable: false,
-          location: {
-            displayName: userLocation.displayName,
-            city: userLocation.city,
-            state: userLocation.state,
-            country: userLocation.country,
-            coordinates:
-              typeof lat === "number" && typeof lng === "number"
-                ? {
-                    type: "Point",
-                    coordinates: [lng, lat],
-                  }
-                : null,
-          },
+          isAvailable: typeof isAvailable === "boolean" ? isAvailable : false,
+          totalDonations: donations,
+          lastDonationDate: lastDonation,
+          isVerified: false,
         });
-      } catch (error) {
-        await User.findByIdAndDelete(user._id);
-        throw new ApiError(
-          500,
-          "Failed to create donor profile. Registration was rolled back.",
-        );
       }
+
+      await this.issueEmailVerificationOtp(user, this.cleanIp(ip), userAgent);
+    } catch (error) {
+      await Donor.deleteOne({ userId: user._id });
+      await User.findByIdAndDelete(user._id);
+      throw new ApiError(
+        500,
+        "Failed to create account. Please try again.",
+      );
     }
 
     // ── Log activity ───────────────────────────────────
@@ -327,7 +371,115 @@ export class AuthService {
       email: user.email,
       role: user.role,
       bloodType: user.bloodType,
+      emailVerificationSent: true,
     };
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  SEND EMAIL OTP
+  // ══════════════════════════════════════════════════════
+  static async sendEmailVerificationOtp(
+    email: string,
+    ip: string,
+    userAgent: string,
+  ) {
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+emailVerificationCode +emailVerificationExpires +emailVerificationAttempts +emailVerificationBlockedUntil",
+    );
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    if (user.isVerified) {
+      throw new ApiError(400, "Email is already verified");
+    }
+
+    if (
+      user.emailVerificationBlockedUntil &&
+      user.emailVerificationBlockedUntil > new Date()
+    ) {
+      const mins = Math.ceil(
+        (user.emailVerificationBlockedUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ApiError(429, `Too many attempts. Try again in ${mins} minute(s).`);
+    }
+
+    return this.issueEmailVerificationOtp(user, this.cleanIp(ip), userAgent);
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  VERIFY EMAIL OTP
+  // ══════════════════════════════════════════════════════
+  static async verifyEmailOtp(
+    email: string,
+    otp: string,
+    ip: string,
+    userAgent: string,
+  ) {
+    const user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+emailVerificationCode +emailVerificationExpires +emailVerificationAttempts +emailVerificationBlockedUntil",
+    );
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    if (user.isVerified) {
+      return { id: user._id, email: user.email, isVerified: true };
+    }
+
+    if (!user.emailVerificationCode || !user.emailVerificationExpires) {
+      throw new ApiError(400, "No OTP found. Please request a new one.");
+    }
+
+    if (
+      user.emailVerificationBlockedUntil &&
+      user.emailVerificationBlockedUntil > new Date()
+    ) {
+      const mins = Math.ceil(
+        (user.emailVerificationBlockedUntil.getTime() - Date.now()) / 60000,
+      );
+      throw new ApiError(429, `Too many attempts. Try again in ${mins} minute(s).`);
+    }
+
+    if (user.emailVerificationExpires < new Date()) {
+      user.emailVerificationCode = null;
+      user.emailVerificationExpires = null;
+      user.emailVerificationAttempts = 0;
+      await user.save();
+      throw new ApiError(400, "OTP expired. Please request a new one.");
+    }
+
+    const otpHash = this.hashOtp(otp);
+    if (otpHash !== user.emailVerificationCode) {
+      user.emailVerificationAttempts += 1;
+
+      if (user.emailVerificationAttempts >= 5) {
+        user.emailVerificationBlockedUntil = new Date(Date.now() + 15 * 60 * 1000);
+      }
+
+      await user.save();
+      throw new ApiError(400, "Invalid OTP");
+    }
+
+    user.isVerified = true;
+    user.emailVerificationCode = null;
+    user.emailVerificationExpires = null;
+    user.emailVerificationAttempts = 0;
+    user.emailVerificationBlockedUntil = null;
+    await user.save();
+
+    await UserActivity.create({
+      userId: user._id,
+      event: "profile_update",
+      meta: { action: "verify_email" },
+      ip: this.cleanIp(ip),
+      userAgent,
+      timestamp: new Date(),
+    }).catch(() => {});
+
+    return { id: user._id, email: user.email, isVerified: true };
   }
 
   // ══════════════════════════════════════════════════════
@@ -359,6 +511,10 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new ApiError(403, "Account deactivated. Contact support.");
+    }
+
+    if (!user.isVerified) {
+      throw new ApiError(403, "Email not verified. Please verify your email.");
     }
 
     // ── Account lock check ─────────────────────────────
@@ -904,9 +1060,7 @@ console.log(resetUrl)
     // Also update Donor collection if they are a donor
     if (user.role === "donor") {
       const donorUpdate: any = {};
-      if (body.bloodType) donorUpdate.bloodType = body.bloodType;
       if (body.isAvailable !== undefined) donorUpdate.isAvailable = body.isAvailable;
-      if (body.location) donorUpdate.location = body.location;
       
       if (Object.keys(donorUpdate).length > 0) {
         await Donor.findOneAndUpdate({ userId: user._id }, { $set: donorUpdate });
