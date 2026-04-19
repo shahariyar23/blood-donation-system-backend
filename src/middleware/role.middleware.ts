@@ -25,3 +25,5 @@ export const authorize = (...roles: string[]) => {
     next();
   };
 };
+
+export const requireRole = (...roles: string[]) => authorize(...roles);

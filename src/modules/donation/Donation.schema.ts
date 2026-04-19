@@ -1,28 +1,56 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IDonation extends Document {
-  donor:           mongoose.Types.ObjectId;
-  request:         mongoose.Types.ObjectId;
-  bloodType:       string;
-  units:           number;
-  hospital:        string;
-  donatedAt:       Date;
-  verifiedByBank:  boolean;
-  notes:           string;
-  createdAt:       Date;
+  donorId: mongoose.Types.ObjectId;
+  hospitalId: mongoose.Types.ObjectId;
+  status: "pending" | "approved" | "rejected";
+  approvedBy: mongoose.Types.ObjectId | null;
+  approvedAt: Date | null;
+  patientInfo?: string;
+  reportNote?: string;
+  bloodType: string;
+  units: number;
+  donatedAt: Date | null;
+  notes: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const DonationSchema = new Schema<IDonation>(
   {
-    donor: {
-      type:     Schema.Types.ObjectId,
-      ref:      "User",
+    donorId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
       required: true,
     },
-    request: {
-      type:     Schema.Types.ObjectId,
-      ref:      "BloodRequest",
+    hospitalId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
       required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "approved", "rejected"],
+      default: "pending",
+    },
+    approvedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+    patientInfo: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    reportNote: {
+      type: String,
+      default: "",
+      trim: true,
     },
     bloodType: {
       type:     String,
@@ -35,18 +63,9 @@ const DonationSchema = new Schema<IDonation>(
       min:     1,
       max:     10,
     },
-    hospital: {
-      type:     String,
-      required: true,
-      trim:     true,
-    },
     donatedAt: {
       type:    Date,
-      default: Date.now,
-    },
-    verifiedByBank: {
-      type:    Boolean,
-      default: false,
+      default: null,
     },
     notes: {
       type:    String,
@@ -61,8 +80,8 @@ const DonationSchema = new Schema<IDonation>(
 );
 
 // ── Indexes ────────────────────────────────────────────
-DonationSchema.index({ donor: 1, donatedAt: -1 });
-DonationSchema.index({ request: 1 });
+DonationSchema.index({ donorId: 1, donatedAt: -1 });
+DonationSchema.index({ hospitalId: 1, status: 1, createdAt: -1 });
 DonationSchema.index({ bloodType: 1 });
 
 export default mongoose.model<IDonation>("Donation", DonationSchema);

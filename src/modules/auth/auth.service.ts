@@ -335,12 +335,21 @@ export class AuthService {
       if (role == "donor") {
         const donations = typeof totalDonations === "number" ? totalDonations : 0;
         const lastDonation = donations > 0 ? lastDonationDate || null : null;
+        const nextAvailableAt = lastDonation
+          ? new Date(new Date(lastDonation).getTime() + 90 * 24 * 60 * 60 * 1000)
+          : null;
+        const isCurrentlyAvailable = nextAvailableAt
+          ? new Date() >= nextAvailableAt
+          : typeof isAvailable === "boolean"
+            ? isAvailable
+            : false;
 
         await Donor.create({
           userId: user._id,
-          isAvailable: typeof isAvailable === "boolean" ? isAvailable : false,
+          isAvailable: isCurrentlyAvailable,
           totalDonations: donations,
           lastDonationDate: lastDonation,
+          nextAvailableAt,
           isVerified: false,
         });
       }

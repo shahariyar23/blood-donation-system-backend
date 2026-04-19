@@ -23,6 +23,8 @@ import { upload } from "../../middleware/upload.middleware";
 import {
   authLimiter,
   forgotPasswordLimiter,
+  otpSendLimiter,
+  otpVerifyLimiter,
 } from "../../middleware/rateLimiter.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import {
@@ -64,10 +66,10 @@ router.post(
 router.post("/reset-password", validate(resetPasswordSchema), resetPassword);
 
 // POST /api/auth/send-otp
-router.post("/send-otp", authLimiter, validate(sendOtpSchema), sendEmailOtp);
+router.post("/send-otp", otpSendLimiter, validate(sendOtpSchema), sendEmailOtp);
 
 // POST /api/auth/verify-otp
-router.post("/verify-otp", authLimiter, validate(verifyOtpSchema), verifyEmailOtp);
+router.post("/verify-otp", otpVerifyLimiter, validate(verifyOtpSchema), verifyEmailOtp);
 
 // ══════════════════════════════════════════════════════
 //  PROTECTED ROUTES  (require valid JWT)

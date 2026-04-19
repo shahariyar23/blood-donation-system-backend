@@ -42,7 +42,7 @@ export interface IUser extends Document {
     instagram: string | null;
     twitter: string | null;
   };
-  role: "donor" | "user" | "admin";
+  role: "donor" | "user" | "admin" | "hospital";
   isVerified: boolean;
   isActive: boolean;
   isDeleted: boolean;
@@ -164,7 +164,7 @@ const UserSchema = new Schema<IUser>(
     },
     role: {
       type: String,
-      enum: ["donor", "user", "admin"],
+      enum: ["donor", "user", "admin", "hospital"],
       default: "user",
     },
     isVerified: {
@@ -217,6 +217,14 @@ const UserSchema = new Schema<IUser>(
 // ── Indexes ────────────────────────────────────────────
 UserSchema.index({ bloodType: 1 });
 UserSchema.index({ "location.district": 1 });
+UserSchema.index({
+  role: 1,
+  isActive: 1,
+  isDeleted: 1,
+  bloodType: 1,
+  "location.coordinates.lat": 1,
+  "location.coordinates.lng": 1,
+});
 UserSchema.index({ role: 1, isActive: 1 });
 UserSchema.index({ isDeleted: 1, isActive: 1 });
 

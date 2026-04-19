@@ -50,3 +50,45 @@ export const forgotPasswordLimiter = rateLimit({
     message:    "Too many password reset requests. Please try again after 1 hour.",
   },
 });
+
+// ══════════════════════════════════════════════════════
+//  otpSendLimiter
+//  Applied to send-otp route
+//  5 requests per 15 minutes per email (fallback to IP)
+// ══════════════════════════════════════════════════════
+export const otpSendLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             5,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator: (req) => {
+    const email = (req.body?.email || "").toString().toLowerCase().trim();
+    return email || req.ip;
+  },
+  message: {
+    success:    false,
+    statusCode: 429,
+    message:    "Too many OTP requests. Please try again after 15 minutes.",
+  },
+});
+
+// ══════════════════════════════════════════════════════
+//  otpVerifyLimiter
+//  Applied to verify-otp route
+//  10 attempts per 15 minutes per email (fallback to IP)
+// ══════════════════════════════════════════════════════
+export const otpVerifyLimiter = rateLimit({
+  windowMs:        15 * 60 * 1000,
+  max:             10,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  keyGenerator: (req) => {
+    const email = (req.body?.email || "").toString().toLowerCase().trim();
+    return email || req.ip;
+  },
+  message: {
+    success:    false,
+    statusCode: 429,
+    message:    "Too many OTP attempts. Please try again after 15 minutes.",
+  },
+});

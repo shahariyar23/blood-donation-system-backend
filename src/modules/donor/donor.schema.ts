@@ -4,6 +4,7 @@ export interface IDonor extends Document {
   userId: mongoose.Types.ObjectId;
   isAvailable: boolean;
   lastDonationDate: Date | null;
+  nextAvailableAt: Date | null;
   totalDonations: number;
   isVerified: boolean;
   createdAt: Date;
@@ -26,6 +27,10 @@ const DonorSchema = new Schema<IDonor>(
       type: Date,
       default: null,
     },
+    nextAvailableAt: {
+      type: Date,
+      default: null,
+    },
     totalDonations: {
       type: Number,
       default: 0,
@@ -42,7 +47,7 @@ const DonorSchema = new Schema<IDonor>(
   }
 );
 
-DonorSchema.index({ isAvailable: 1, isVerified: 1 });
+DonorSchema.index({ isAvailable: 1, isVerified: 1, nextAvailableAt: 1 });
 
 const Donor = mongoose.model<IDonor>("Donor", DonorSchema);
 export default Donor;
