@@ -22,6 +22,7 @@ export const rejectDonationSchema = z.object({
 });
 
 export const listDonationQuerySchema = z.object({
+  search: z.string().trim().optional(),
   status: z.enum(["pending", "approved", "rejected"]).optional(),
   page: z.preprocess(
     (value) => (value === undefined ? undefined : Number(value)),

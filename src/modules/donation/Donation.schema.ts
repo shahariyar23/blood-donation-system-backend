@@ -80,8 +80,10 @@ const DonationSchema = new Schema<IDonation>(
 );
 
 // ── Indexes ────────────────────────────────────────────
+DonationSchema.index({ hospitalId: 1, _id: -1 });
 DonationSchema.index({ donorId: 1, donatedAt: -1 });
 DonationSchema.index({ hospitalId: 1, status: 1, createdAt: -1 });
+DonationSchema.index({ hospitalId: 1, donorId: 1, bloodType: 1, status: 1, createdAt: -1 });
 DonationSchema.index({ bloodType: 1 });
 
 export default mongoose.model<IDonation>("Donation", DonationSchema);
