@@ -184,6 +184,9 @@ SessionSchema.index({ userId: 1 });
 SessionSchema.index({ "network.ip": 1 });
 SessionSchema.index({ isActive: 1 });
 SessionSchema.index({ userId: 1, isActive: 1 });
-SessionSchema.index({ refreshTokenExpiresAt: 1 }, { expireAfterSeconds: 0 });
+SessionSchema.index(
+  { refreshTokenExpiresAt: 1 },
+  { expireAfterSeconds: 0, name: "session_refresh_token_ttl" },
+);
 
 export default mongoose.model<ISession>("Session", SessionSchema);

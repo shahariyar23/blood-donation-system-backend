@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import Session from "../modules/auth/Session.schema";
 
 const connectDB = async (): Promise<void> => {
   try {
@@ -13,6 +14,12 @@ const connectDB = async (): Promise<void> => {
     });
 
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
+
+    // Keep indexes aligned with schema and remove legacy ones.
+    // This fixes old TTL indexes (e.g., tokenExpiresAt) that can delete
+    // sessions after 15 minutes instead of refresh token expiry.
+    await Session.syncIndexes();
+    console.log("✅ Session indexes synchronized");
 
     // ── Connection events ──────────────────────────────
     mongoose.connection.on("disconnected", () => {
