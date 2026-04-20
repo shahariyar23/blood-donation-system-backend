@@ -6,7 +6,7 @@ import { asyncHandler }      from "../../shared/utils/asyncHandler";
 import { ApiResponse }       from "../../shared/utils/ApiResponse";
 import { ApiError }          from "../../shared/utils/ApiError";
 import User                  from "../user/User.schema";
-import { Donor }             from "../index";
+import { Donor, UserActivity } from "../index";
 
 // ── Cookie config ──────────────────────────────────────
 const isProd = process.env.NODE_ENV === "production";
@@ -34,6 +34,23 @@ const extractIp = (req: Request): string => {
   return raw
     .replace("::ffff:", "")  // IPv4-mapped IPv6 → plain IPv4
     .replace("::1", "127.0.0.1"); // localhost IPv6 → localhost IPv4
+};
+
+const logUserActivity = async (
+  req: Request,
+  userId: string,
+  event: "profile_view" | "profile_update" | "avatar_upload",
+  meta: Record<string, any> = {},
+) => {
+  await UserActivity.create({
+    userId,
+    sessionId: req.user?.sessionId,
+    event,
+    meta,
+    ip: extractIp(req),
+    userAgent: req.headers["user-agent"] || "",
+    timestamp: new Date(),
+  }).catch(() => {});
 };
 
 // ══════════════════════════════════════════════════════
@@ -76,6 +93,12 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
           avatarUrl: result.secure_url,
         })
       );
+
+    if (req.user?.id) {
+      await logUserActivity(req, req.user.id, "avatar_upload", {
+        action: "upload_avatar",
+      });
+    }
   } finally {
     await fs.unlink(filePath).catch(() => {});
   }
@@ -143,6 +166,11 @@ export const getMySessions = asyncHandler(
       req.user!.id,
       req.user!.sessionId,
     );
+
+    await logUserActivity(req, req.user!.id, "profile_view", {
+      action: "view_sessions",
+      totalSessions: data.totalSessions,
+    });
 
     res
       .status(200)
@@ -369,6 +397,10 @@ export const getAuthUser = asyncHandler(
       lastDonationDate: donor?.lastDonationDate ?? null,
     };
 
+    await logUserActivity(req, req.user!.id, "profile_view", {
+      action: "get_auth_user",
+    });
+
     res
       .status(200)
       .json(new ApiResponse(200, "Authenticated user", payload));
@@ -381,6 +413,11 @@ export const getAuthUser = asyncHandler(
 export const updateAuthUser = asyncHandler(
   async (req: Request, res: Response) => {
     const data = await AuthService.updateAuthUser(req.user!.id, req.body);
+
+    await logUserActivity(req, req.user!.id, "profile_update", {
+      action: "update_auth_user",
+      fields: Object.keys(req.body || {}),
+    });
 
     res
       .status(200)
@@ -396,6 +433,10 @@ export const changePassword = asyncHandler(
     const { currentPassword, newPassword } = req.body;
 
     await AuthService.changePassword(req.user!.id, currentPassword, newPassword);
+
+    await logUserActivity(req, req.user!.id, "profile_update", {
+      action: "change_password",
+    });
 
     res
       .status(200)

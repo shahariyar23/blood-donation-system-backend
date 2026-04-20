@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import User from "./User.schema";
 import { Donor, CommunityReport, UserActivity } from "../index";
+import { logActivity } from "./activity.logger";
 import {
   ApiResponse,
   ApiError,
@@ -67,6 +68,15 @@ export const getUserById = asyncHandler(async (req: Request, res: Response) => {
 
   const payload = await attachDonorFields(user);
 
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_view",
+    meta: {
+      action: "view_public_profile",
+      targetUserId: id,
+    },
+  });
+
   res
     .status(200)
     .json(new ApiResponse(200, "User fetched successfully", payload));
@@ -108,6 +118,16 @@ export const promoteToAdmin = asyncHandler(async (req: Request, res: Response) =
   user.isVerified = true;
   await user.save();
 
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: {
+      action: "promote_to_admin",
+      targetUserId: user._id,
+      targetEmail: user.email,
+    },
+  });
+
   res.status(200).json(
     new ApiResponse(200, "User promoted to admin", {
       id: user._id,
@@ -138,6 +158,12 @@ export const updateAvatar = asyncHandler(
       { $set: { avatar: avatarUrl } },
       { new: true },
     ).select("avatar");
+
+    await logActivity(req, {
+      userId,
+      event: "avatar_upload",
+      meta: { action: "update_avatar" },
+    });
 
     res
       .status(200)
@@ -171,6 +197,15 @@ export const toggleAvailability = asyncHandler(
 
     donor.isAvailable = !donor.isAvailable;
     await donor.save();
+
+    await logActivity(req, {
+      userId,
+      event: "availability_toggle",
+      meta: {
+        action: "toggle_availability",
+        isAvailable: donor.isAvailable,
+      },
+    });
 
     res.status(200).json(
       new ApiResponse(
@@ -214,6 +249,20 @@ export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
       .sort({ createdAt: -1 }),
     User.countDocuments(filter),
   ]);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_view",
+    meta: {
+      action: "admin_list_users",
+      role: role || "",
+      bloodType: bloodType || "",
+      search: search || "",
+      page,
+      limit,
+      total,
+    },
+  });
 
   res.status(200).json(
     new ApiResponse(200, "Users fetched successfully", {
@@ -298,6 +347,16 @@ export const createHospital = asyncHandler(async (req: Request, res: Response) =
     location: hospitalLocation,
   });
 
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: {
+      action: "admin_create_hospital",
+      targetUserId: hospital._id,
+      targetEmail: hospital.email,
+    },
+  });
+
   res.status(201).json(
     new ApiResponse(201, "Hospital created", {
       id: hospital._id,
@@ -334,6 +393,16 @@ export const updateUserStatus = asyncHandler(
     if (!user) {
       throw new ApiError(404, "User not found");
     }
+
+    await logActivity(req, {
+      userId: req.user?.id,
+      event: "profile_update",
+      meta: {
+        action: "admin_update_user_status",
+        targetUserId: id,
+        isActive,
+      },
+    });
 
     res
       .status(200)
@@ -380,6 +449,16 @@ export const verifyDonor = asyncHandler(async (req: Request, res: Response) => {
 
   donor.isVerified = true;
   await donor.save();
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: {
+      action: "admin_verify_donor",
+      targetUserId: id,
+      isDonorVerified: true,
+    },
+  });
 
   res.status(200).json(
     new ApiResponse(200, "Donor verified successfully", {
@@ -535,6 +614,18 @@ export const updateCommunityFlags = asyncHandler(
     if (!updated) {
       throw new ApiError(404, "User not found");
     }
+
+    await logActivity(req, {
+      userId: req.user?.id,
+      event: "profile_update",
+      meta: {
+        action: "admin_update_community_flags",
+        targetUserId: id,
+        operation: action,
+        value: value ?? null,
+        communityFlags: updated.communityFlags,
+      },
+    });
 
     res.status(200).json(
       new ApiResponse(200, "Community flags updated", {

@@ -6,5 +6,6 @@ export { default as UserActivity }    from "./user/UserActivity.schema";
 export { default as BloodRequest }    from "./bloodRequest/BloodRequest.schema";
 export { default as Donation }        from "./donation/Donation.schema";
 export { default as BloodBank }       from "./bloodBank/BloodBank.schema";
+export { default as Hospital }        from "./hospital/Hospital.schema";
 export { default as Notification }    from "./notification/Notification.schema";
 export { default as CommunityReport } from "./admin/CommunityReport.schema";

@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { DonationService } from "./donation.service";
 import { ApiResponse, asyncHandler } from "../../shared/utils";
+import { logActivity } from "../user/activity.logger";
 
 // ══════════════════════════════════════════════════════
 //  POST /hospital/donations
@@ -10,6 +11,17 @@ export const createDonation = asyncHandler(
 	async (req: Request, res: Response) => {
 		const hospitalId = req.user!.id;
 		const donation = await DonationService.createDonation(hospitalId, req.body);
+
+		await logActivity(req, {
+			userId: hospitalId,
+			event: "request_create",
+			meta: {
+				action: "hospital_create_donation",
+				donationId: donation?._id,
+				donorId: donation?.donorId,
+				bloodType: donation?.bloodType,
+			},
+		});
 
 		res
 			.status(201)
@@ -27,6 +39,17 @@ export const approveDonation = asyncHandler(
 			hospitalId,
 			req.params.id,
 		);
+
+		await logActivity(req, {
+			userId: hospitalId,
+			event: "request_respond",
+			meta: {
+				action: "hospital_approve_donation",
+				donationId: req.params.id,
+				status: "approved",
+				donorId: donation?.donorId,
+			},
+		});
 
 		res
 			.status(200)
@@ -46,6 +69,18 @@ export const rejectDonation = asyncHandler(
 			req.body,
 		);
 
+		await logActivity(req, {
+			userId: hospitalId,
+			event: "request_respond",
+			meta: {
+				action: "hospital_reject_donation",
+				donationId: req.params.id,
+				status: "rejected",
+				reason: req.body?.reportNote || "",
+				donorId: donation?.donorId,
+			},
+		});
+
 		res
 			.status(200)
 			.json(new ApiResponse(200, "Donation rejected", donation));
@@ -62,6 +97,17 @@ export const listHospitalDonations = asyncHandler(
 			hospitalId,
 			req.query as any,
 		);
+
+		await logActivity(req, {
+			userId: hospitalId,
+			event: "request_view",
+			meta: {
+				action: "hospital_list_donations",
+				page: req.query.page || 1,
+				limit: req.query.limit || 10,
+				search: req.query.search || "",
+			},
+		});
 
 		res
 			.status(200)

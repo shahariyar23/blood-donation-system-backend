@@ -4,6 +4,7 @@ import { ApiError } from "../shared/utils";
 import { asyncHandler } from "../shared/utils";
 import Session from "../modules/auth/Session.schema";
 import User from "../modules/user/User.schema";
+import Hospital from "../modules/hospital/Hospital.schema";
 
 // ── Extend Express Request type ────────────────────────
 declare global {
@@ -114,6 +115,53 @@ export const optionalProtect = asyncHandler(
     } catch {
       // invalid token → continue as guest, don't throw
     }
+
+    next();
+  },
+);
+
+// ══════════════════════════════════════════════════════
+//  protectHospital
+//  Verifies hospital JWT and hospital account status
+// ══════════════════════════════════════════════════════
+export const protectHospital = asyncHandler(
+  async (req: Request, _res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      throw new ApiError(401, "Access token is required");
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    let decoded: any;
+    try {
+      decoded = verifyAccessToken(token);
+    } catch (err: any) {
+      if (err.name === "TokenExpiredError") {
+        throw new ApiError(401, "Access token expired. Please refresh.");
+      }
+      throw new ApiError(401, "Invalid access token");
+    }
+
+    if (decoded.role !== "hospital") {
+      throw new ApiError(403, "Access denied. Hospital token required");
+    }
+
+    const hospital = await Hospital.findById(decoded.id).select("isActive");
+    if (!hospital) {
+      throw new ApiError(401, "Hospital no longer exists");
+    }
+
+    if (!hospital.isActive) {
+      throw new ApiError(403, "Hospital account is inactive");
+    }
+
+    req.user = {
+      id: decoded.id,
+      role: "hospital",
+      sessionId: "",
+    };
 
     next();
   },

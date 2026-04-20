@@ -1,20 +1,143 @@
 import mongoose, { Schema, Document } from "mongoose";
 
+// ── Audit Trail Sub-Interface ────────────────────────
+export interface IAuditTrail {
+  action: string;
+  performedBy: mongoose.Types.ObjectId;
+  performedAt: Date;
+  changes?: Record<string, any>;
+  notes?: string;
+}
+
+// ── Patient Information Sub-Interface ─────────────────
+export interface IPatientInfo {
+  name: string;
+  address: string;
+  phone: string;
+  age?: number;
+  gender?: "male" | "female" | "other";
+  reasonForBlood: string;
+  medicalCondition?: string;
+  doctorName?: string;
+  doctorPhone?: string;
+}
+
 export interface IDonation extends Document {
   donorId: mongoose.Types.ObjectId;
   hospitalId: mongoose.Types.ObjectId;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "completed" | "cancelled";
   approvedBy: mongoose.Types.ObjectId | null;
   approvedAt: Date | null;
-  patientInfo?: string;
-  reportNote?: string;
+  
+  // Patient Information
+  patientInfo: IPatientInfo;
+  
+  // Blood Details
   bloodType: string;
   units: number;
   donatedAt: Date | null;
+  
+  // Collection & Processing
+  collectionId?: mongoose.Types.ObjectId;
+  collectedBy?: mongoose.Types.ObjectId;
+  collectedAt?: Date;
+  
+  // Notes & Reports
+  reportNote?: string;
   notes: string;
+  
+  // Audit Trail
+  auditTrail: IAuditTrail[];
+  
   createdAt: Date;
   updatedAt: Date;
 }
+
+const AuditTrailSchema = new Schema<IAuditTrail>(
+  {
+    action: {
+      type: String,
+      required: true,
+      enum: [
+        "donation_created",
+        "donation_approved",
+        "donation_rejected",
+        "donation_collected",
+        "donation_completed",
+        "donation_cancelled",
+        "donation_updated",
+      ],
+    },
+    performedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    performedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    changes: {
+      type: Schema.Types.Mixed,
+      default: {},
+    },
+    notes: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
+const PatientInfoSchema = new Schema<IPatientInfo>(
+  {
+    name: {
+      type: String,
+      required: [true, "Patient name is required"],
+      trim: true,
+    },
+    address: {
+      type: String,
+      required: [true, "Patient address is required"],
+      trim: true,
+    },
+    phone: {
+      type: String,
+      required: [true, "Patient phone is required"],
+      trim: true,
+    },
+    age: {
+      type: Number,
+      default: null,
+    },
+    gender: {
+      type: String,
+      enum: ["male", "female", "other"],
+      default: "other",
+    },
+    reasonForBlood: {
+      type: String,
+      required: [true, "Reason for blood is required"],
+      trim: true,
+    },
+    medicalCondition: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    doctorName: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    doctorPhone: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  { _id: false }
+);
 
 const DonationSchema = new Schema<IDonation>(
   {
@@ -30,7 +153,7 @@ const DonationSchema = new Schema<IDonation>(
     },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected"],
+      enum: ["pending", "approved", "rejected", "completed", "cancelled"],
       default: "pending",
     },
     approvedBy: {
@@ -43,35 +166,48 @@ const DonationSchema = new Schema<IDonation>(
       default: null,
     },
     patientInfo: {
+      type: PatientInfoSchema,
+      required: true,
+    },
+    bloodType: {
       type: String,
-      default: "",
-      trim: true,
+      required: true,
+      enum: ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
+    },
+    units: {
+      type: Number,
+      default: 1,
+      min: 1,
+      max: 10,
+    },
+    donatedAt: {
+      type: Date,
+      default: null,
+    },
+    collectionId: {
+      type: Schema.Types.ObjectId,
+      default: null,
+    },
+    collectedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    collectedAt: {
+      type: Date,
+      default: null,
     },
     reportNote: {
       type: String,
       default: "",
       trim: true,
     },
-    bloodType: {
-      type:     String,
-      required: true,
-      enum:     ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
-    },
-    units: {
-      type:    Number,
-      default: 1,
-      min:     1,
-      max:     10,
-    },
-    donatedAt: {
-      type:    Date,
-      default: null,
-    },
     notes: {
-      type:    String,
+      type: String,
       default: "",
-      trim:    true,
+      trim: true,
     },
+    auditTrail: [AuditTrailSchema],
   },
   {
     timestamps: true,
