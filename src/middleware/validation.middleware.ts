@@ -58,7 +58,7 @@ export const validate = (schema: ZodSchema) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       const body = req.body;
-
+// console.log(body)
       if (body.location) {
         body.location = normalizeLocation(body.location);
       }

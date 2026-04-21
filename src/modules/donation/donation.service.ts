@@ -5,8 +5,11 @@ import Donor from "../donor/donor.schema";
 import { ApiError, paginate } from "../../shared/utils";
 import {
 	CreateDonationInput,
+	CreateDonationRequestInput,
 	ListDonationQuery,
+	ListMyDonationRequestQuery,
 	RejectDonationInput,
+	SearchDonationRequestInput,
 } from "./donation.validation";
 
 export class DonationService {
@@ -23,7 +26,16 @@ export class DonationService {
 		return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	}
 
+	private static buildIdentifierQuery(identifier: string) {
+		const value = identifier.trim();
+		const lower = value.toLowerCase();
+		return {
+			$or: [{ email: lower }, { phone: value }],
+		};
+	}
+
 	static async createDonation(hospitalId: string, body: CreateDonationInput) {
+		// console.log(body)
 		const donorUser = await User.findById(body.donorId).select(
 			"role isActive bloodType",
 		);
@@ -43,6 +55,7 @@ export class DonationService {
 		const donation = await Donation.create({
 			donorId: donorUser._id,
 			hospitalId,
+			requestedBy: body.requesterId ?? null,
 			bloodType: body.bloodType,
 			units: body.units ?? 1,
 			patientInfo: body.patientInfo || "",
@@ -51,6 +64,61 @@ export class DonationService {
 			approvedBy: null,
 			approvedAt: null,
 			donatedAt: null,
+		});
+
+		return donation;
+	}
+
+	static async createDonationRequest(
+		requesterId: string,
+		body: CreateDonationRequestInput,
+	) {
+		const donorUser = await User.findById(body.donorId).select("role isActive email");
+		console.log(donorUser)
+
+		if (!donorUser || !donorUser.isActive || donorUser.role !== "donor") {
+			throw new ApiError(404, "Donor not found");
+		}
+
+		const donorProfile = await Donor.findOne({ userId: donorUser._id }).select("_id");
+		if (!donorProfile) {
+			throw new ApiError(404, "Donor profile not found");
+		}
+
+		const now = new Date();
+		const donation = await Donation.create({
+			donorId: donorUser._id,
+			hospitalId: requesterId,
+			bloodType: body.bloodType,
+			units: 1,
+			patientInfo: {
+				name: "N/A",
+				address: "N/A",
+				phone: "N/A",
+				reasonForBlood: "Blood request",
+			},
+			notes: "",
+			collectionId: null,
+			requestedBy: new Types.ObjectId(body.collectionId),
+			status: "request",
+			approvedBy: null,
+			approvedAt: null,
+			donatedAt: null,
+			auditTrail: [
+				{
+					action: "donation_created",
+					performedBy: new Types.ObjectId(requesterId),
+					performedAt: now,
+					changes: {
+						donorId: { from: null, to: String(donorUser._id) },
+						requestedBy: { from: null, to: requesterId },
+						bloodType: { from: null, to: body.bloodType },
+						collectionId: { from: null, to: body.collectionId },
+						status: { from: null, to: "request" },
+					},
+					notes: "Donation request created by user with donor, blood type, and collection id",
+				},
+			],
 		});
 
 		return donation;
@@ -203,4 +271,93 @@ export class DonationService {
 			},
 		};
 	}
+
+	static async listMyDonationRequests(
+		requesterId: string,
+		query: ListMyDonationRequestQuery,
+	) {
+		const filter: Record<string, any> = { hospitalId: requesterId };
+		if (query.status) filter.status = query.status;
+
+		const { skip, limit, page, totalPages } = paginate(
+			query as Record<string, any>,
+		);
+
+		const [requests, total] = await Promise.all([
+			Donation.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+			Donation.countDocuments(filter),
+		]);
+
+		return {
+			requests,
+			pagination: {
+				total,
+				page,
+				limit,
+				totalPages: totalPages(total),
+			},
+		};
+	}
+
+	static async searchDonationRequestForHospital(
+		hospitalId: string,
+		body: SearchDonationRequestInput,
+	) {
+		const { identifier } = body;
+
+		const matchedUser = await User.findOne(this.buildIdentifierQuery(identifier)).select(
+			"_id name email phone role isActive bloodType avatar location",
+		);
+
+		if (!matchedUser) {
+			throw new ApiError(404, "User not found");
+		}
+
+		const donationRequest = await Donation.findOne({
+			status: "request",
+			$or: [{ requestedBy: matchedUser._id }, { donorId: matchedUser._id }],
+		})
+			.sort({ createdAt: -1 })
+			.populate("donorId", "name email phone bloodType avatar location role isActive")
+			.populate("requestedBy", "name email phone role");
+
+		if (!donationRequest) {
+			throw new ApiError(404, "Donation request not found");
+		}
+
+		const donorUser = donationRequest.donorId as any;
+		const donorProfile = donorUser?._id
+			? await Donor.findOne({ userId: donorUser._id }).select(
+					"isAvailable totalDonations lastDonationDate nextAvailableAt isVerified",
+				)
+			: null;
+
+		return {
+			request: donationRequest,
+			matchedUser: {
+				id: matchedUser._id,
+				name: matchedUser.name,
+				email: matchedUser.email,
+				phone: matchedUser.phone,
+				role: matchedUser.role,
+			},
+			donor: donorUser
+				? {
+						id: donorUser._id,
+						name: donorUser.name,
+						email: donorUser.email,
+						phone: donorUser.phone,
+						avatar: donorUser.avatar || null,
+						bloodType: donorUser.bloodType,
+						location: donorUser.location || null,
+						isAvailable: donorProfile?.isAvailable ?? false,
+						isDonorVerified: donorProfile?.isVerified ?? false,
+						totalDonations: donorProfile?.totalDonations ?? 0,
+						lastDonationDate: donorProfile?.lastDonationDate ?? null,
+				  }
+				: null,
+			hospitalId,
+		};
+	}
+
 }

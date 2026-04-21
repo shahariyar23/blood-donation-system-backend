@@ -11,14 +11,35 @@ const bloodTypeEnum = z.enum(
 
 export const createDonationSchema = z.object({
   donorId: objectId,
+  requesterId: objectId,
   bloodType: bloodTypeEnum,
   units: z.number().int().min(1).max(10).optional(),
-  patientInfo: z.string().trim().optional(),
+  patientInfo: z.any().optional(),
   notes: z.string().trim().optional(),
 });
 
 export const rejectDonationSchema = z.object({
   reportNote: z.string().trim().optional(),
+});
+
+export const createDonationRequestSchema = z.object({
+  donorId: objectId,
+  bloodType: bloodTypeEnum,
+  collectionId: objectId,
+});
+
+export const listMyDonationRequestQuerySchema = z.object({
+  status: z
+    .enum(["request", "pending", "approved", "rejected", "completed", "cancelled"])
+    .optional(),
+  page: z.preprocess(
+    (value) => (value === undefined ? undefined : Number(value)),
+    z.number().int().min(1).optional(),
+  ),
+  limit: z.preprocess(
+    (value) => (value === undefined ? undefined : Number(value)),
+    z.number().int().min(1).max(100).optional(),
+  ),
 });
 
 export const listDonationQuerySchema = z.object({
@@ -34,6 +55,13 @@ export const listDonationQuerySchema = z.object({
   ),
 });
 
+export const searchDonationRequestSchema = z.object({
+  identifier: z.string().trim().min(3, "Identifier is required"),
+});
+
 export type CreateDonationInput = z.infer<typeof createDonationSchema>;
 export type RejectDonationInput = z.infer<typeof rejectDonationSchema>;
+export type CreateDonationRequestInput = z.infer<typeof createDonationRequestSchema>;
+export type ListMyDonationRequestQuery = z.infer<typeof listMyDonationRequestQuerySchema>;
 export type ListDonationQuery = z.infer<typeof listDonationQuerySchema>;
+export type SearchDonationRequestInput = z.infer<typeof searchDonationRequestSchema>;

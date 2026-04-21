@@ -16,6 +16,7 @@ router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/donors", donorRoutes);
 router.use("/hospital/donations", donationRoutes);
+router.use("/donations", donationRoutes);
 router.use("/hospital", hospitalRoutes);
 // router.use("/blood-banks",   bloodBankRoutes);
 // router.use("/blood-requests", bloodRequestRoutes);

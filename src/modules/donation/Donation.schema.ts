@@ -25,7 +25,8 @@ export interface IPatientInfo {
 export interface IDonation extends Document {
   donorId: mongoose.Types.ObjectId;
   hospitalId: mongoose.Types.ObjectId;
-  status: "pending" | "approved" | "rejected" | "completed" | "cancelled";
+  requestedBy?: mongoose.Types.ObjectId | null;
+  status: "request" | "pending" | "approved" | "rejected" | "completed" | "cancelled";
   approvedBy: mongoose.Types.ObjectId | null;
   approvedAt: Date | null;
   
@@ -151,9 +152,14 @@ const DonationSchema = new Schema<IDonation>(
       ref: "User",
       required: true,
     },
+    requestedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     status: {
       type: String,
-      enum: ["pending", "approved", "rejected", "completed", "cancelled"],
+      enum: ["request", "pending", "approved", "rejected", "completed", "cancelled"],
       default: "pending",
     },
     approvedBy: {
