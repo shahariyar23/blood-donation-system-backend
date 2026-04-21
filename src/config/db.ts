@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import Session from "../modules/auth/Session.schema";
 
+let connectionPromise: Promise<typeof mongoose> | null = null;
+
 const connectDB = async (): Promise<void> => {
   try {
     const uri = process.env.MONGODB_URI;
@@ -9,9 +11,20 @@ const connectDB = async (): Promise<void> => {
       throw new Error("MONGODB_URI is not defined in .env file");
     }
 
-    const conn = await mongoose.connect(uri, {
+    if (mongoose.connection.readyState === 1) {
+      return;
+    }
+
+    if (connectionPromise) {
+      await connectionPromise;
+      return;
+    }
+
+    connectionPromise = mongoose.connect(uri, {
       dbName: "bloodconnect",
     });
+
+    const conn = await connectionPromise;
 
     console.log(`✅ MongoDB connected: ${conn.connection.host}`);
 
@@ -34,7 +47,10 @@ const connectDB = async (): Promise<void> => {
       console.error(`❌ MongoDB error: ${err.message}`);
     });
 
+    connectionPromise = null;
+
   } catch (error: any) {
+    connectionPromise = null;
     console.error(`❌ MongoDB connection failed: ${error.message}`);
     process.exit(1);
   }
