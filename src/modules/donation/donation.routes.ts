@@ -11,6 +11,7 @@ import {
 	listHospitalDonations,
 	listMyDonationRequests,
 	rejectDonation,
+	searchDonationSuggestions,
 	searchDonationRequestForHospital,
 } from "./donation.controller";
 import {
@@ -19,6 +20,7 @@ import {
 	listDonationQuerySchema,
 	listMyDonationRequestQuerySchema,
 	rejectDonationSchema,
+	searchDonationSuggestionsQuerySchema,
 	searchDonationRequestSchema,
 } from "./donation.validation";
 
@@ -103,6 +105,15 @@ router.post(
 	requireRole("hospital"),
 	validate(searchDonationRequestSchema),
 	searchDonationRequestForHospital,
+);
+
+// GET /api/hospital/donations/search-suggestions
+router.get(
+	"/search-suggestions",
+	protectHospital,
+	requireRole("hospital"),
+	validateQuery(searchDonationSuggestionsQuerySchema),
+	searchDonationSuggestions,
 );
 
 export default router;

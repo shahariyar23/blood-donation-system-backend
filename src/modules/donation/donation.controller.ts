@@ -198,3 +198,28 @@ export const searchDonationRequestForHospital = asyncHandler(
 			.json(new ApiResponse(200, "Donation request found", data));
 	},
 );
+
+// ══════════════════════════════════════════════════════
+//  GET /hospital/donations/search-suggestions
+//  Hospital searches donor/user suggestions by phone or email
+// ══════════════════════════════════════════════════════
+export const searchDonationSuggestions = asyncHandler(
+	async (req: Request, res: Response) => {
+		const hospitalId = req.user!.id;
+		const q = String(req.query.q || "").trim();
+		const data = await DonationService.searchDonationSuggestions(q);
+
+		await logActivity(req, {
+			userId: hospitalId,
+			event: "request_view",
+			meta: {
+				action: "hospital_search_donation_suggestions",
+				query: q,
+			},
+		});
+
+		res
+			.status(200)
+			.json(new ApiResponse(200, "Suggestions fetched successfully", data));
+	},
+);

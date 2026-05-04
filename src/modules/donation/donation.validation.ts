@@ -59,9 +59,14 @@ export const searchDonationRequestSchema = z.object({
   identifier: z.string().trim().min(3, "Identifier is required"),
 });
 
+export const searchDonationSuggestionsQuerySchema = z.object({
+  q: z.string().trim().min(1, "Search query is required"),
+});
+
 export type CreateDonationInput = z.infer<typeof createDonationSchema>;
 export type RejectDonationInput = z.infer<typeof rejectDonationSchema>;
 export type CreateDonationRequestInput = z.infer<typeof createDonationRequestSchema>;
 export type ListMyDonationRequestQuery = z.infer<typeof listMyDonationRequestQuerySchema>;
 export type ListDonationQuery = z.infer<typeof listDonationQuerySchema>;
 export type SearchDonationRequestInput = z.infer<typeof searchDonationRequestSchema>;
+export type SearchDonationSuggestionsQuery = z.infer<typeof searchDonationSuggestionsQuerySchema>;

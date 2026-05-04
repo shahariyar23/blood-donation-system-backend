@@ -34,6 +34,116 @@ export class DonationService {
     };
   }
 
+  private static buildSuggestionRegex(query: string) {
+    return new RegExp(this.escapeRegex(query.trim()), "i");
+  }
+
+  static async searchDonationSuggestions(q: string) {
+    const search = q.trim();
+
+    if (!search) {
+      throw new ApiError(400, "Search query is required");
+    }
+
+    const regex = this.buildSuggestionRegex(search);
+
+    const [donorSuggestions, userSuggestions] = await Promise.all([
+      Donor.aggregate([
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        { $unwind: "$user" },
+        {
+          $match: {
+            "user.role": "donor",
+            "user.isActive": true,
+            "user.isDeleted": false,
+            $or: [{ "user.email": regex }, { "user.phone": regex }],
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            identifier: { $ifNull: ["$user.email", "$user.phone"] },
+            name: "$user.name",
+            role: { $literal: "donor" },
+            email: "$user.email",
+            phone: "$user.phone",
+          },
+        },
+        { $limit: 6 },
+      ]),
+      User.find({
+        role: "user",
+        isActive: true,
+        isDeleted: false,
+        $or: [{ email: regex }, { phone: regex }],
+      })
+        .select("name email phone")
+        .limit(6),
+    ]);
+
+    const suggestions: Array<{
+      identifier: string;
+      name: string;
+      role: string;
+      email: string;
+      phone: string;
+    }> = [];
+    const seen = new Set<string>();
+
+    for (const suggestion of donorSuggestions as any[]) {
+      const identifier = String(
+        suggestion.identifier || suggestion.email || suggestion.phone || "",
+      ).trim();
+
+      if (!identifier || seen.has(identifier)) {
+        continue;
+      }
+
+      seen.add(identifier);
+      suggestions.push({
+        identifier,
+        name: suggestion.name || "",
+        role: suggestion.role || "donor",
+        email: suggestion.email || "",
+        phone: suggestion.phone || "",
+      });
+
+      if (suggestions.length >= 6) {
+        return { suggestions };
+      }
+    }
+
+    for (const suggestion of userSuggestions as any[]) {
+      const identifier = String(suggestion.email || suggestion.phone || "").trim();
+
+      if (!identifier || seen.has(identifier)) {
+        continue;
+      }
+
+      seen.add(identifier);
+      suggestions.push({
+        identifier,
+        name: suggestion.name || "",
+        role: "hospital_user",
+        email: suggestion.email || "",
+        phone: suggestion.phone || "",
+      });
+
+      if (suggestions.length >= 6) {
+        break;
+      }
+    }
+
+    return { suggestions };
+  }
+
   static async createDonation(hospitalId: string, body: CreateDonationInput) {
     // console.log(body)
     const donorUser = await User.findById(body.donorId).select(
