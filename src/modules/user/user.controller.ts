@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import User from "./User.schema";
-import { Donor, CommunityReport, UserActivity } from "../index";
+import { Donor, CommunityReport, UserActivity, Donation } from "../index";
 import { logActivity } from "./activity.logger";
 import {
   ApiResponse,
@@ -81,6 +81,106 @@ export const getUserById = asyncHandler(async (req: Request, res: Response) => {
     .status(200)
     .json(new ApiResponse(200, "User fetched successfully", payload));
 });
+
+// ══════════════════════════════════════════════════════
+//  GET /users/my-donoation/:id
+//  Get user profile all data
+// ══════════════════════════════════════════════════════
+export const myDonation = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  // ── Pagination params from query ──
+  const page = Math.max(1, parseInt(req.query.page as string) || 1);
+  const limit = Math.min(
+    20,
+    Math.max(1, parseInt(req.query.limit as string) || 10),
+  );
+  const skip = (page - 1) * limit;
+
+  if (!isValidId(id)) {
+    throw new ApiError(400, "Invalid user ID");
+  }
+
+  const user = await User.findOne({ _id: id, isActive: true }).select(
+    "totalReceived",
+  );
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const payload = await attachDonorFields(user);
+  const donorData = await Donor.findOne({ userId: id })
+    .select("totalDonations nextAvailableAt lastDonationDate")
+    .lean();
+// console.log(donorData)
+  // ── Fetch donations with pagination ──
+  const [donations, totalDonations] = await Promise.all([
+    Donation.find({ donorId: id })
+      .select(
+        "status bloodType units patientInfo.name patientInfo.reasonForBlood hospitalId requestedBy donatedAt createdAt",
+      )
+      .populate("hospitalId", "name")
+      .populate("requestedBy", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+
+    Donation.countDocuments({ donorId: id }),
+  ]);
+
+  // ── Map each donation document ──
+  const donationHistory = donations.map((donation) => {
+    if (donation.status === "request") {
+      return {
+        status: donation.status,
+        bloodType: donation.bloodType,
+        units: donation.units,
+        requestedBy: (donation.requestedBy as any)?.name ?? null,
+        date: donation.createdAt,
+      };
+    }
+
+    return {
+      status: donation.status,
+      patientName: donation.patientInfo?.name ?? null,
+      bloodType: donation.bloodType,
+      units: donation.units,
+      hospitalName: (donation.hospitalId as any)?.name ?? null,
+      reasonForBlood: donation.patientInfo?.reasonForBlood ?? null,
+      date: donation.donatedAt ?? donation.createdAt,
+    };
+  });
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_view",
+    meta: {
+      action: "view_public_profile",
+      targetUserId: id,
+    },
+  });
+
+  res.status(200).json(
+    new ApiResponse(200, "User fetched successfully", {
+      ...payload,
+      totalDonations: donorData?.totalDonations ?? 0,
+      nextAvailableAt: donorData?.nextAvailableAt ?? null,
+      lastDonationDate: donorData?.lastDonationDate ?? null,
+      donationHistory,
+      pagination: {
+        total: totalDonations,
+        page,
+        limit,
+        totalPages: Math.ceil(totalDonations / limit),
+        hasNextPage: page < Math.ceil(totalDonations / limit),
+        hasPrevPage: page > 1,
+      },
+    }),
+  );
+});
+
 
 // ══════════════════════════════════════════════════════
 //  DEV: POST /users/dev/promote-admin
@@ -281,8 +381,23 @@ export const getAllUsers = asyncHandler(async (req: Request, res: Response) => {
 //  ADMIN: POST /admin/hospitals
 //  Create hospital account (admin only)
 // ══════════════════════════════════════════════════════
+
+function isValidEmail(value: any) {
+  return typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
 export const createHospital = asyncHandler(async (req: Request, res: Response) => {
-  const { name, email, phone, password, location } = req.body as Record<string, any>;
+  const body = req.body as Record<string, any>;
+
+  // support both admin frontend keys and legacy keys
+  const name = body.name || body.hospitalName || body.hospital?.name;
+
+  // prefer explicit email fields; do NOT treat freeform emailNote as the email address
+  const possibleEmails = [body.email, body.adminEmail, body.hospitalEmail, body.emailAddress];
+  const email = possibleEmails.find(isValidEmail);
+  const phone = body.phone || body.adminPhone || body.hospitalPhone;
+  const password = body.password;
+  const location = body.location;
 
   if (!name || !email || !phone || !password) {
     throw new ApiError(400, "name, email, phone, and password are required");

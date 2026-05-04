@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 const bloodTypeEnum = z.enum(
-	["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
-	{ errorMap: () => ({ message: "Invalid blood type" }) },
-);
+  ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"],
+  { errorMap: () => ({ message: "Invalid blood type" }) },
+).optional();
 
 const booleanLike = z.preprocess(
 	(value) => {

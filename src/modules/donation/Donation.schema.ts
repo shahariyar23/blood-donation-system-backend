@@ -159,7 +159,7 @@ const DonationSchema = new Schema<IDonation>(
     },
     status: {
       type: String,
-      enum: ["request", "pending", "approved", "rejected", "completed", "cancelled"],
+      enum: ["request", "pending", "approved", "rejected"],
       default: "pending",
     },
     approvedBy: {

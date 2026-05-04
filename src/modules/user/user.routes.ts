@@ -10,6 +10,7 @@ import {
 	verifyDonor,
 	reportUser,
 	updateCommunityFlags,
+	myDonation,
 } from "./user.controller";
 import { protect } from "../../middleware/auth.middleware";
 import { authorize } from "../../middleware/role.middleware";
@@ -37,7 +38,8 @@ router.put("/me/avatar", protect, upload.avatar, updateAvatar);
 router.patch("/me/availability", protect, toggleAvailability);
 router.post("/:id/report", protect, reportUser);
 
-// ── Public routes ────────────────────────────────────
-router.get("/:id", getUserById);
+// ── get routes ────────────────────────────────────
+router.get("/:id",protect, getUserById);
+router.get("/my-donation/:id",protect, myDonation);
 
 export default router;

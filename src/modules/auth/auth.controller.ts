@@ -288,7 +288,12 @@ export const refreshAccessToken = asyncHandler(
 
     res
       .status(200)
-      .json(new ApiResponse(200, "Token refreshed successfully", { accessToken: data.accessToken }));
+      .json(
+        new ApiResponse(200, "Token refreshed successfully", {
+          accessToken: data.accessToken,
+          role: data.role,
+        }),
+      );
   }
 );
 

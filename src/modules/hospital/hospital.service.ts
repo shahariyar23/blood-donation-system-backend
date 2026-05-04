@@ -103,9 +103,9 @@ export class HospitalAuthService {
         <p><strong>Login Credentials:</strong></p>
         <ul>
           <li>Email: ${data.email}</li>
-          <li>Please use your password to login</li>
-        </ul>
-        <p>Your hospital account is pending verification by our admin team.</p>
+          <li>Please use your password to login: ${data.password}</li>
+          </ul>
+          <p>Your hospital account is pending verification by our admin team.</p>
         <p>Regards,<br/>Blood Donation System Team</p>
       `,
     }).catch(() => {});

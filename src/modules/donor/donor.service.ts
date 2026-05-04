@@ -20,14 +20,14 @@ export class DonorService {
       excludeUserId,
       sortBy,
     } = query;
-
+console.log("{currect user}: ", query)
     const { skip, limit, page, totalPages } = paginate(
       query as Record<string, any>,
     );
 
-    if (!bloodType || typeof bloodType !== "string") {
-      throw new ApiError(400, "bloodType is required");
-    }
+    // if (!bloodType || typeof bloodType !== "string") {
+    //   throw new ApiError(400, "bloodType is required");
+    // }
 
     if (typeof lat !== "number" || typeof lng !== "number") {
       throw new ApiError(
@@ -58,7 +58,7 @@ export class DonorService {
       role: "donor",
       isActive: true,
       isDeleted: false,
-      bloodType,
+      ...(bloodType ? { bloodType } : {}),
       "location.coordinates.lat": { $gte: minLat, $lte: maxLat },
       "location.coordinates.lng": { $gte: minLng, $lte: maxLng },
     };

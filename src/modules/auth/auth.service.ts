@@ -667,7 +667,7 @@ export class AuthService {
       data: {
         accessToken,
         user: {
-          id: user._id,
+          _id: user._id,
           name: user.name,
           email: user.email,
           phone: user.phone,
@@ -897,7 +897,11 @@ export class AuthService {
       },
     });
 
-    return { accessToken: newAccessToken, refreshToken: session.refreshToken };
+    return {
+      accessToken: newAccessToken,
+      refreshToken: session.refreshToken,
+      role: user.role,
+    };
   }
 
   // ══════════════════════════════════════════════════════

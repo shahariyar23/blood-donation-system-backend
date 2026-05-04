@@ -1,0 +1,65 @@
+import { Router } from "express";
+import { protect } from "../../middleware/auth.middleware";
+import { requireRole } from "../../middleware/role.middleware";
+import { login } from "../auth/auth.controller";
+import { authLimiter } from "../../middleware/rateLimiter.middleware";
+import { validate } from "../../middleware/validation.middleware";
+import { loginSchema } from "../auth/auth.validation";
+import {
+  getAdminDashboard,
+  getAdminMe,
+  getAdminReports,
+  getAdminUsers,
+  getAdminUserById,
+  getAdminHospitals,
+  getAdminHospitalById,
+  updateAdminHospitalStatus,
+  verifyAdminHospital,
+  unverifyAdminHospital,
+  reviewAdminReport,
+  updateAdminCommunityFlags,
+  updateAdminUserStatus,
+  verifyAdminDonor,
+  verifyAdminUser,
+  getAdminBloodRequests,
+  getAdminDonations,
+  getAdminDonationById,
+  updateAdminDonationStatus,
+  getAdminVerifications,
+  verifyAdminVerification,
+  getAdminSettings,
+  updateAdminSettings,
+} from "./admin.controller";
+
+const router = Router();
+
+router.post("/auth/login", authLimiter, validate(loginSchema), login);
+
+router.use(protect, requireRole("admin"));
+
+router.get("/me", getAdminMe);
+router.get("/dashboard", getAdminDashboard);
+router.get("/users", getAdminUsers);
+router.get("/users/:id", getAdminUserById);
+router.get("/hospitals", getAdminHospitals);
+router.get("/hospitals/:id", getAdminHospitalById);
+router.patch("/hospitals/:id/status", updateAdminHospitalStatus);
+router.patch("/hospitals/:id/verify", verifyAdminHospital);
+router.patch("/hospitals/:id/unverify", unverifyAdminHospital);
+router.get("/reports", getAdminReports);
+router.get("/blood-requests", getAdminBloodRequests);
+router.get("/donations", getAdminDonations);
+router.get("/donations/:id", getAdminDonationById);
+router.patch("/donations/:id/status", updateAdminDonationStatus);
+router.get("/verifications", getAdminVerifications);
+router.get("/settings", getAdminSettings);
+
+router.patch("/users/:id/status", updateAdminUserStatus);
+router.patch("/users/:id/verify-donor", verifyAdminDonor);
+router.patch("/users/:id/verify-user", verifyAdminUser);
+router.patch("/users/:id/community-flags", updateAdminCommunityFlags);
+router.patch("/reports/:id/review", reviewAdminReport);
+router.patch("/verifications/:id/verify", verifyAdminVerification);
+router.patch("/settings", updateAdminSettings);
+
+export default router;
