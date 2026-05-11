@@ -229,4 +229,83 @@ console.log("{currect user}: ", query)
       },
     };
   }
+
+  static async getHomeDonors(userId?: string) {
+    // If user is logged in and has coordinates, return nearest donors within 20km (limit 6)
+    if (userId) {
+      const user = await User.findById(userId).select("location.coordinates").lean();
+      const lat = user?.location?.coordinates?.lat;
+      const lng = user?.location?.coordinates?.lng;
+
+      if (typeof lat === "number" && typeof lng === "number") {
+        const result = await this.searchDonors({
+          lat,
+          lng,
+          radiusKm: 20,
+          limit: 6,
+          page: 1,
+          excludeUserId: userId,
+        } as any);
+
+        return result.donors;
+      }
+    }
+
+    // Fallback for anonymous users or when coordinates are missing: return latest donors (limit 6)
+    const now = new Date();
+    const pipeline = [
+      { $match: { role: "donor", isActive: true, isDeleted: false } },
+      {
+        $lookup: {
+          from: "donors",
+          localField: "_id",
+          foreignField: "userId",
+          as: "donor",
+        },
+      },
+      { $unwind: "$donor" },
+      {
+        $addFields: {
+          isAvailableNow: {
+            $cond: [
+              {
+                $or: [
+                  { $eq: ["$donor.nextAvailableAt", null] },
+                  { $lte: ["$donor.nextAvailableAt", now] },
+                ],
+              },
+              true,
+              false,
+            ],
+          },
+          primarySocialLink: {
+            $ifNull: [
+              "$socialLinks.facebook",
+              { $ifNull: ["$socialLinks.instagram", { $ifNull: ["$socialLinks.twitter", null] }] },
+            ],
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      { $limit: 6 },
+      {
+        $project: {
+          name: 1,
+          avatar: 1,
+          bloodType: 1,
+          location: 1,
+          createdAt: 1,
+          isAvailable: "$isAvailableNow",
+          totalDonations: "$donor.totalDonations",
+          lastDonationDate: "$donor.lastDonationDate",
+          isDonorVerified: "$donor.isVerified",
+          distanceKm: null,
+          primarySocialLink: 1,
+        },
+      },
+    ];
+
+    const donors = await User.aggregate(pipeline as any[]);
+    return donors;
+  }
 }

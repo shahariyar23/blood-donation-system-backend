@@ -25,3 +25,14 @@ export const getDonors = asyncHandler(async (req: Request, res: Response) => {
 	);
 });
 
+// ══════════════════════════════════════════════════════
+//  GET /donors/home
+//  Home page donors: nearest 6 within 20km for logged-in users, otherwise latest 6 (public)
+// ══════════════════════════════════════════════════════
+export const getHomeDonors = asyncHandler(async (req: Request, res: Response) => {
+	const userId = req.user?.id;
+	const donors = await DonorService.getHomeDonors(userId);
+
+	res.status(200).json(new ApiResponse(200, "Home donors fetched successfully", donors));
+});
+

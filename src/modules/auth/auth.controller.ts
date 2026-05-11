@@ -275,7 +275,6 @@ export const deleteAccount = asyncHandler(
 export const refreshAccessToken = asyncHandler(
   async (req: Request, res: Response) => {
     const token = req.cookies?.refreshToken;
-    console.log("[token]: ",token);
 
     if (!token) {
       throw new ApiError(401, "No refresh token provided");

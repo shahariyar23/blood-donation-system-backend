@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { ZodSchema, ZodError } from "zod";
 import { ApiError } from "../../shared/utils";
-import { getDonors } from "./donor.controller";
+import { getDonors, getHomeDonors } from "./donor.controller";
 import { searchDonorSchema } from "./donor.validation";
 
 const router = Router();
@@ -33,6 +33,9 @@ const validateQuery = (schema: ZodSchema) => {
 // ══════════════════════════════════════════════════════
 //  PUBLIC ROUTES
 // ══════════════════════════════════════════════════════
+
+// GET /api/donors/home
+router.get("/home", getHomeDonors);
 
 // GET /api/donors
 router.get("/", validateQuery(searchDonorSchema), getDonors);

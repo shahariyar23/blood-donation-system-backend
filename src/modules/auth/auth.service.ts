@@ -839,7 +839,6 @@ export class AuthService {
   static async refreshAccessToken(token: string) {
     // ── Verify JWT signature ───────────────────────────
     let decoded: any;
-    console.log("[token]: ", token);
     try {
       decoded = verifyRefreshToken(token);
     } catch (err: any) {
