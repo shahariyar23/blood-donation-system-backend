@@ -18,6 +18,12 @@ import {
   HospitalResetPasswordRequest,
   ChangePasswordRequest,
 } from "./hospital.validation";
+import {
+  hospitalPasswordChangedTemplate,
+  hospitalPasswordResetRequestTemplate,
+  hospitalPasswordResetSuccessTemplate,
+  hospitalRegistrationTemplate,
+} from "../../utils/email.payloads";
 
 export class HospitalAuthService {
   // ══════════════════════════════════════════════════════
@@ -97,17 +103,11 @@ export class HospitalAuthService {
     await sendEmail({
       to: data.email,
       subject: "Hospital Registration Successful",
-      html: `
-        <h2>Welcome to Blood Donation System</h2>
-        <p>Your hospital <strong>${data.hospitalName}</strong> has been successfully registered.</p>
-        <p><strong>Login Credentials:</strong></p>
-        <ul>
-          <li>Email: ${data.email}</li>
-          <li>Please use your password to login: ${data.password}</li>
-          </ul>
-          <p>Your hospital account is pending verification by our admin team.</p>
-        <p>Regards,<br/>Blood Donation System Team</p>
-      `,
+      html: hospitalRegistrationTemplate({
+        hospitalName: data.hospitalName,
+        email: data.email,
+        password: data.password,
+      }),
     }).catch(() => {});
 
     return {
@@ -301,22 +301,12 @@ export class HospitalAuthService {
     await hospital.save();
 
     // Send email with reset link
-    const resetLink = `${process.env.FRONTEND_URL}/hospital/reset-password?token=${resetToken}&email=${data.email}`;
+    const resetLink = `${process.env.CLIENT_URL}/hospital/reset-password?token=${resetToken}&email=${data.email}`;
 
     await sendEmail({
       to: data.email,
       subject: "Password Reset Instructions",
-      html: `
-        <h2>Password Reset Request</h2>
-        <p>You have requested to reset your password.</p>
-        <p>Click the link below to reset your password (valid for 15 minutes):</p>
-        <a href="${resetLink}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">
-          Reset Password
-        </a>
-        <p>Or copy this link: ${resetLink}</p>
-        <p>If you didn't request this, please ignore this email.</p>
-        <p>Regards,<br/>Blood Donation System Team</p>
-      `,
+      html: hospitalPasswordResetRequestTemplate({ resetLink }),
     }).catch(() => {});
 
     return {
@@ -370,13 +360,7 @@ export class HospitalAuthService {
     await sendEmail({
       to: data.email,
       subject: "Password Reset Successful",
-      html: `
-        <h2>Password Reset Successful</h2>
-        <p>Your password has been successfully reset.</p>
-        <p>You can now login with your new password.</p>
-        <p>If you didn't make this change, please contact our support team immediately.</p>
-        <p>Regards,<br/>Blood Donation System Team</p>
-      `,
+      html: hospitalPasswordResetSuccessTemplate(),
     }).catch(() => {});
 
     return {
@@ -429,17 +413,10 @@ export class HospitalAuthService {
     await sendEmail({
       to: hospital.email,
       subject: "Password Change Confirmation",
-      html: `
-        <h2>Password Changed Successfully</h2>
-        <p>Your password for <strong>${hospital.hospitalName}</strong> has been successfully changed.</p>
-        <p><strong>Change Details:</strong></p>
-        <ul>
-          <li>Changed at: ${new Date().toISOString()}</li>
-          <li>IP Address: ${ipAddress || "unknown"}</li>
-        </ul>
-        <p>If you didn't make this change, please contact our support team immediately.</p>
-        <p>Regards,<br/>Blood Donation System Team</p>
-      `,
+      html: hospitalPasswordChangedTemplate({
+        hospitalName: hospital.hospitalName,
+        ipAddress,
+      }),
     }).catch(() => {});
 
     return {

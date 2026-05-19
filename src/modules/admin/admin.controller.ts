@@ -3,6 +3,32 @@ import { ApiError, ApiResponse, asyncHandler } from "../../shared/utils";
 import { AdminService } from "./admin.service";
 import { logActivity } from "../user/activity.logger";
 
+const parseVerificationBody = (body: any) => {
+  if (typeof body?.isVerified === "boolean") {
+    return {
+      isVerified: body.isVerified,
+      isActive: typeof body?.isActive === "boolean" ? body.isActive : undefined,
+      status: body.isVerified ? "verified" : "unverified",
+    };
+  }
+
+  const status = String(body?.status || "").trim().toLowerCase();
+
+  if (["verified", "verify"].includes(status)) {
+    return { isVerified: true, isActive: undefined, status: "verified" };
+  }
+
+  if (["unverified", "unverify"].includes(status)) {
+    return { isVerified: false, isActive: undefined, status: "unverified" };
+  }
+
+  if (["blocked", "block", "banned", "ban"].includes(status)) {
+    return { isVerified: false, isActive: false, status: "blocked" };
+  }
+
+  throw new ApiError(400, "status must be verified, unverified, or blocked");
+};
+
 export const getAdminMe = asyncHandler(async (req: Request, res: Response) => {
   const data = await AdminService.getAdminMe(req.user!.id);
 
@@ -210,7 +236,8 @@ export const unverifyAdminHospital = asyncHandler(async (req: Request, res: Resp
 
 export const verifyAdminDonor = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = await AdminService.verifyDonor(id);
+  const { isVerified, isActive, status } = parseVerificationBody(req.body);
+  const data = await AdminService.verifyDonor(id, isVerified, isActive);
 
   await logActivity(req, {
     userId: req.user?.id,
@@ -218,10 +245,13 @@ export const verifyAdminDonor = asyncHandler(async (req: Request, res: Response)
     meta: {
       action: "admin_verify_donor",
       targetUserId: id,
+      status,
+      isDonorVerified: isVerified,
+      isActive,
     },
   });
 
-  res.status(200).json(new ApiResponse(200, "Donor verified successfully", data));
+  res.status(200).json(new ApiResponse(200, `Donor ${status} successfully`, data));
 });
 
 export const updateAdminCommunityFlags = asyncHandler(
@@ -269,7 +299,8 @@ export const reviewAdminReport = asyncHandler(async (req: Request, res: Response
 
 export const verifyAdminUser = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
-  const data = await AdminService.verifyUser(id);
+  const { isVerified, isActive, status } = parseVerificationBody(req.body);
+  const data = await AdminService.verifyUser(id, isVerified, isActive);
 
   await logActivity(req, {
     userId: req.user?.id,
@@ -277,10 +308,13 @@ export const verifyAdminUser = asyncHandler(async (req: Request, res: Response) 
     meta: {
       action: "admin_verify_user",
       targetUserId: id,
+      status,
+      isVerified,
+      isActive,
     },
   });
 
-  res.status(200).json(new ApiResponse(200, "User verified successfully", data));
+  res.status(200).json(new ApiResponse(200, `User ${status} successfully`, data));
 });
 
 export const getAdminBloodRequests = asyncHandler(
@@ -304,6 +338,32 @@ export const getAdminBloodRequests = asyncHandler(
         new ApiResponse(
           200,
           "Blood requests retrieved successfully",
+          data,
+        ),
+      );
+  },
+);
+
+export const getAdminBloodRequestById = asyncHandler(
+  async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const data = await AdminService.getBloodRequestById(id);
+
+    await logActivity(req, {
+      userId: req.user?.id,
+      event: "profile_view",
+      meta: {
+        action: "admin_blood_request_details",
+        bloodRequestId: id,
+      },
+    });
+
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          "Blood request details retrieved successfully",
           data,
         ),
       );

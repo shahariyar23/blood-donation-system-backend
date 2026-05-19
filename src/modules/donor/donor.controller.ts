@@ -10,6 +10,9 @@ import { logActivity } from "../user/activity.logger";
 export const getDonors = asyncHandler(async (req: Request, res: Response) => {
 	const data = await DonorService.searchDonors(req.query as any);
 
+	// Add debug info for troubleshooting
+	const debugInfo = await DonorService.getDebugInfo();
+
 	await logActivity(req, {
 		userId: req.user?.id,
 		event: "donor_search",
@@ -21,7 +24,7 @@ export const getDonors = asyncHandler(async (req: Request, res: Response) => {
 	});
 
 	res.status(200).json(
-		new ApiResponse(200, "Donors fetched successfully", data)
+		new ApiResponse(200, "Donors fetched successfully", { ...data, debug: debugInfo })
 	);
 });
 

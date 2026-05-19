@@ -21,6 +21,12 @@ export const cancelBloodRequest = asyncHandler(async (req: Request, res: Respons
 	res.status(200).json(new ApiResponse(200, "Blood request cancelled successfully", bloodRequest));
 });
 
+export const fulfillBloodRequest = asyncHandler(async (req: Request, res: Response) => {
+	const userId = req.user!.id;
+	const bloodRequest = await BloodRequestService.fulfillBloodRequest(userId, req.params as any);
+	res.status(200).json(new ApiResponse(200, "Blood request fulfilled successfully", bloodRequest));
+});
+
 export const respondDonor = asyncHandler(async (req: Request, res: Response) => {
 	const donorId = req.user!.id;
 	const requestId = req.params.id;
@@ -34,4 +40,10 @@ export const respondDonor = asyncHandler(async (req: Request, res: Response) => 
 export const getLatestBloodRequests = asyncHandler(async (req: Request, res: Response) => {
 	const requests = await BloodRequestService.getLatestBloodRequests();
 	res.status(200).json(new ApiResponse(200, "Latest blood requests fetched successfully", requests));
+});
+
+export const getAllBloodRequests = asyncHandler(async (req: Request, res: Response) => {
+	const userId = req.user?.id || null; // null if not logged in
+	const data = await BloodRequestService.getAllBloodRequests(userId, req.query as any);
+	res.status(200).json(new ApiResponse(200, "Blood requests fetched successfully", data));
 });

@@ -5,6 +5,7 @@ import { AuthService }       from "./auth.service";
 import { asyncHandler }      from "../../shared/utils/asyncHandler";
 import { ApiResponse }       from "../../shared/utils/ApiResponse";
 import { ApiError }          from "../../shared/utils/ApiError";
+import { isDonorAvailable, ensureDonorAvailability } from "../../shared/utils";
 import User                  from "../user/User.schema";
 import { Donor, UserActivity } from "../index";
 
@@ -380,7 +381,7 @@ export const verifyEmailOtp = asyncHandler(
 export const getAuthUser = asyncHandler(
   async (req: Request, res: Response) => {
     const user = await User.findById(req.user!.id).select(
-      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks lastReceivedDate totalReceived createdAt updatedAt",
+      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks settings lastReceivedDate totalReceived createdAt updatedAt",
     );
 
     if (!user) {
@@ -389,13 +390,19 @@ export const getAuthUser = asyncHandler(
     const donor =
       user.role === "donor"
         ? await Donor.findOne({ userId: user._id }).select(
-            "isAvailable totalDonations lastDonationDate isVerified",
+            "isAvailable totalDonations lastDonationDate isVerified nextAvailableAt",
           )
         : null;
 
+    if (donor) {
+      await ensureDonorAvailability(donor);
+    }
+
+    const computedAvailable = isDonorAvailable(donor);
+
     const payload = {
       ...user.toObject(),
-      isAvailable: donor?.isAvailable ?? false,
+      isAvailable: computedAvailable,
       isDonorVerified: donor?.isVerified ?? false,
       totalDonations: donor?.totalDonations ?? 0,
       lastDonationDate: donor?.lastDonationDate ?? null,
@@ -432,6 +439,61 @@ export const updateAuthUser = asyncHandler(
 // ══════════════════════════════════════════════════════
 //  POST /api/auth/change-password
 // ══════════════════════════════════════════════════════
+export const getAuthSettings = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.getSettings(req.user!.id);
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Settings fetched successfully", data));
+  }
+);
+
+export const updateAuthSettings = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.updateSettings(req.user!.id, req.body);
+
+    await logUserActivity(req, req.user!.id, "profile_update", {
+      action: "update_settings",
+      fields: Object.keys(req.body || {}),
+    });
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Settings updated successfully", data));
+  }
+);
+
+export const updateNotificationSettings = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.updateNotificationSettings(req.user!.id, req.body);
+
+    await logUserActivity(req, req.user!.id, "profile_update", {
+      action: "update_notification_settings",
+      fields: Object.keys(req.body || {}),
+    });
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Notification settings updated successfully", data));
+  }
+);
+
+export const updatePrivacySettings = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await AuthService.updatePrivacySettings(req.user!.id, req.body);
+
+    await logUserActivity(req, req.user!.id, "profile_update", {
+      action: "update_privacy_settings",
+      fields: Object.keys(req.body || {}),
+    });
+
+    res
+      .status(200)
+      .json(new ApiResponse(200, "Privacy settings updated successfully", data));
+  }
+);
+
 export const changePassword = asyncHandler(
   async (req: Request, res: Response) => {
     const { currentPassword, newPassword } = req.body;

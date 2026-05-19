@@ -11,6 +11,10 @@ import {
   RejectDonationInput,
   SearchDonationRequestInput,
 } from "./donation.validation";
+import {
+  donationConfirmationTemplate,
+  requestAlreadyFulfilledTemplate,
+} from "../../utils/email.payloads";
 
 export class DonationService {
   private static normalizeSearch(search: string) {
@@ -274,7 +278,6 @@ export class DonationService {
 
     donor.lastDonationDate = now;
     donor.nextAvailableAt = nextAvailableAt;
-    donor.isAvailable = false;
     donor.totalDonations += 1;
     await donor.save();
 
@@ -282,31 +285,80 @@ export class DonationService {
     receiveUser.totalReceived += 1;
     await receiveUser.save();
 
+    // Send SMS to donor with donation details
+    const donorUser = await User.findById(donation.donorId);
+    if (donorUser?.phone && donorUser.settings?.notifications?.smsAlerts === true) {
+      const donationDateStr = now.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      const nextDonationDateStr = nextAvailableAt.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+
+      const smsMessage = `Thank you for donating blood! 🩸 You donated on ${donationDateStr}. You can donate again after ${nextDonationDateStr}. Toggle your availability to ON when ready to donate.`;
+
+      // Log the SMS message (implement actual SMS provider if needed)
+      console.log(`[SMS] To: ${donorUser.phone} - ${smsMessage}`);
+    }
+
+    if (
+      donorUser?.email &&
+      donorUser.settings?.notifications?.requestFulfilled !== false &&
+      donorUser.settings?.notifications?.emailDigest !== false
+    ) {
+      const donationDateStr = now.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      const nextDonationDateStr = nextAvailableAt.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+
+      await sendEmail({
+        to: donorUser.email,
+        subject: "Blood Donation Confirmation",
+        html: donationConfirmationTemplate({
+          donorName: donorUser.name || "there",
+          donationDate: donationDateStr,
+          bloodType: donation.bloodType,
+          units: donation.units,
+          nextDonationDate: nextDonationDateStr,
+        }),
+      }).catch(() => {});
+    }
+
     if (donation.requestedBy) {
       const otherDonations = await Donation.find({
         requestedBy: donation.requestedBy,
         _id: { $ne: donation._id },
       })
-        .populate("donorId", "name email")
+        .populate("donorId", "name email settings")
         .select("donorId requestedBy bloodType units status");
 
       await Promise.allSettled(
         otherDonations.map(async (otherDonation: any) => {
           const donorUser = otherDonation.donorId as any;
-          if (!donorUser?.email) {
+          if (
+            !donorUser?.email ||
+            donorUser.settings?.notifications?.requestFulfilled === false ||
+            donorUser.settings?.notifications?.emailDigest === false
+          ) {
             return;
           }
 
           await sendEmail({
             to: donorUser.email,
             subject: "Blood request already fulfilled",
-            html: `
-              <h2>Thank you for your willingness to help</h2>
-              <p>Hi ${donorUser.name || "there"},</p>
-              <p>The blood request you responded to has already been fulfilled and the blood has been collected.</p>
-              <p>Thank you for being ready to donate and support the patient.</p>
-              <p>Regards,<br/>Blood Donation Team</p>
-            `,
+            html: requestAlreadyFulfilledTemplate({
+              donorName: donorUser.name || "there",
+            }),
           }).catch(() => {});
         }),
       );
@@ -519,9 +571,11 @@ export class DonationService {
             isDonorVerified: donorProfile?.isVerified ?? false,
             totalDonations: donorProfile?.totalDonations ?? 0,
             lastDonationDate: donorProfile?.lastDonationDate ?? null,
+            nextDonationDate: donorProfile?.nextAvailableAt ?? null
           }
         : null,
       hospitalId,
     };
   }
 }
+

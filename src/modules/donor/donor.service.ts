@@ -1,6 +1,7 @@
 import { PipelineStage, Types } from "mongoose";
 import User from "../user/User.schema";
-import { ApiError, paginate } from "../../shared/utils";
+import { Donor } from "../index";
+import { ApiError, paginate, donorAvailabilityMatch, sanitizePublicDonor } from "../../shared/utils";
 import { SearchDonorQuery } from "./donor.validation";
 
 const isTruthy = (value: unknown) =>
@@ -20,7 +21,6 @@ export class DonorService {
       excludeUserId,
       sortBy,
     } = query;
-console.log("{currect user}: ", query)
     const { skip, limit, page, totalPages } = paginate(
       query as Record<string, any>,
     );
@@ -71,13 +71,20 @@ console.log("{currect user}: ", query)
     if (isTruthy(verifiedOnly)) donorMatch["donor.isVerified"] = true;
 
     const now = new Date();
-    const availabilityMatch: PipelineStage.Match = {
-      $match: {
+
+    await Donor.updateMany(
+      {
+        isAvailable: false,
         $or: [
-          { "donor.nextAvailableAt": { $lte: now } },
-          { "donor.nextAvailableAt": null },
+          { nextAvailableAt: null },
+          { nextAvailableAt: { $lte: now } },
         ],
       },
+      { $set: { isAvailable: true } },
+    );
+
+    const availabilityMatch: PipelineStage.Match = {
+      $match: donorAvailabilityMatch(now),
     };
 
     const distanceExpression = {
@@ -149,37 +156,43 @@ console.log("{currect user}: ", query)
       } as PipelineStage.Lookup,
       { $unwind: "$donor" } as PipelineStage.Unwind,
       ...donorMatchStages,
-      availabilityMatch,
-      {
-        $addFields: {
-          distanceKm: distanceExpression,
-          isAvailableNow: {
-            $cond: [
-              {
-                $or: [
-                  { $eq: ["$donor.nextAvailableAt", null] },
-                  { $lte: ["$donor.nextAvailableAt", now] },
-                ],
-              },
-              true,
-              false,
-            ],
-          },
-          primarySocialLink: {
-            $ifNull: [
-              "$socialLinks.facebook",
-              {
-                $ifNull: [
-                  "$socialLinks.instagram",
-                  { $ifNull: ["$socialLinks.twitter", null] },
-                ],
-              },
-            ],
-          },
-        },
-      } as PipelineStage.AddFields,
-      { $match: { distanceKm: { $lte: radius } } } as PipelineStage.Match,
     ];
+
+    if (isTruthy(availableOnly)) {
+      basePipeline.push(availabilityMatch);
+    }
+
+    basePipeline.push({
+      $addFields: {
+        distanceKm: distanceExpression,
+        isAvailableNow: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$donor.isAvailable", true] },
+                { $eq: ["$donor.nextAvailableAt", null] },
+                { $lte: ["$donor.nextAvailableAt", now] },
+              ],
+            },
+            true,
+            false,
+          ],
+        },
+        primarySocialLink: {
+          $ifNull: [
+            "$socialLinks.facebook",
+            {
+              $ifNull: [
+                "$socialLinks.instagram",
+                { $ifNull: ["$socialLinks.twitter", null] },
+              ],
+            },
+          ],
+        },
+      },
+    } as PipelineStage.AddFields);
+
+    basePipeline.push({ $match: { distanceKm: { $lte: radius } } } as PipelineStage.Match);
 
     const sortKey = sortBy === "donations" ? "donations" : "distance";
     const sortStage: PipelineStage.Sort = {
@@ -201,10 +214,12 @@ console.log("{currect user}: ", query)
             avatar: 1,
             bloodType: 1,
             location: 1,
+            settings: 1,
             createdAt: 1,
             isAvailable: "$isAvailableNow",
             totalDonations: "$donor.totalDonations",
             lastDonationDate: "$donor.lastDonationDate",
+            nextDonationDate: "$donor.nextDonationDate",
             isDonorVerified: "$donor.isVerified",
             distanceKm: 1,
             primarySocialLink: 1,
@@ -219,13 +234,82 @@ console.log("{currect user}: ", query)
 
     const total = totalResult[0]?.total || 0;
 
+    console.log("[DONOR SEARCH DEBUG]");
+    console.log("Query params:", { bloodType, lat, lng, radiusKm, availableOnly, verifiedOnly, excludeUserId, sortBy });
+    console.log("Bounding box:", { minLat, maxLat, minLng, maxLng });
+    console.log("User match filter:", userMatch);
+    console.log("Donor match filter:", donorMatch);
+    console.log("Results count:", total);
+    console.log("Donors found:", donors.length);
+
     return {
-      donors,
+      donors: donors.map((donor: any) => sanitizePublicDonor(donor)),
       pagination: {
         total,
         page,
         limit,
         totalPages: totalPages(total),
+      },
+    };
+  }
+
+  static async getDebugInfo() {
+    const now = new Date();
+    const [
+      totalUsers,
+      totalDonors,
+      totalActiveDonors,
+      totalDonorsWithLocation,
+      totalDonorsWithProfiles,
+      totalAvailableDonors,
+    ] = await Promise.all([
+      User.countDocuments({}),
+      User.countDocuments({ role: "donor" }),
+      User.countDocuments({ role: "donor", isActive: true, isDeleted: false }),
+      User.countDocuments({
+        role: "donor",
+        isActive: true,
+        isDeleted: false,
+        "location.coordinates.lat": { $ne: null },
+        "location.coordinates.lng": { $ne: null },
+      }),
+      User.aggregate([
+        { $match: { role: "donor", isActive: true, isDeleted: false } },
+        {
+          $lookup: {
+            from: "donors",
+            localField: "_id",
+            foreignField: "userId",
+            as: "donor",
+          },
+        },
+        { $match: { "donor.0": { $exists: true } } },
+        { $count: "total" },
+      ]),
+      User.aggregate([
+        { $match: { role: "donor", isActive: true, isDeleted: false } },
+        {
+          $lookup: {
+            from: "donors",
+            localField: "_id",
+            foreignField: "userId",
+            as: "donor",
+          },
+        },
+        { $unwind: "$donor" },
+        { $match: donorAvailabilityMatch(now) },
+        { $count: "total" },
+      ]),
+    ]);
+
+    return {
+      databaseStats: {
+        totalUsers,
+        totalDonors,
+        totalActiveDonors,
+        totalDonorsWithLocation: totalDonorsWithLocation || 0,
+        totalDonorsWithProfiles: totalDonorsWithProfiles[0]?.total || 0,
+        totalAvailableDonors: totalAvailableDonors[0]?.total || 0,
       },
     };
   }
@@ -270,6 +354,7 @@ console.log("{currect user}: ", query)
             $cond: [
               {
                 $or: [
+                  { $eq: ["$donor.isAvailable", true] },
                   { $eq: ["$donor.nextAvailableAt", null] },
                   { $lte: ["$donor.nextAvailableAt", now] },
                 ],
@@ -294,6 +379,7 @@ console.log("{currect user}: ", query)
           avatar: 1,
           bloodType: 1,
           location: 1,
+          settings: 1,
           createdAt: 1,
           isAvailable: "$isAvailableNow",
           totalDonations: "$donor.totalDonations",
@@ -306,6 +392,6 @@ console.log("{currect user}: ", query)
     ];
 
     const donors = await User.aggregate(pipeline as any[]);
-    return donors;
+    return donors.map((donor: any) => sanitizePublicDonor(donor));
   }
 }

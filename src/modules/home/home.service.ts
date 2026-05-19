@@ -73,7 +73,13 @@ export class HomeService {
 				$addFields: {
 					isAvailable: {
 						$cond: [
-							{ $or: [ { $eq: ["$donor.nextAvailableAt", null] }, { $lte: ["$donor.nextAvailableAt", now] } ] },
+							{
+								$or: [
+									{ $eq: ["$donor.isAvailable", true] },
+									{ $eq: ["$donor.nextAvailableAt", null] },
+									{ $lte: ["$donor.nextAvailableAt", now] },
+								],
+							},
 							1,
 							0,
 						],

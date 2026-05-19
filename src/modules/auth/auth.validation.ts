@@ -146,9 +146,35 @@ export const verifyOtpSchema = z.object({
 });
 
 // ── Inferred TypeScript types ──────────────────────────
+export const notificationsSettingsSchema = z.object({
+  bloodRequests: z.boolean().optional(),
+  donorResponses: z.boolean().optional(),
+  requestFulfilled: z.boolean().optional(),
+  systemUpdates: z.boolean().optional(),
+  emailDigest: z.boolean().optional(),
+  smsAlerts: z.boolean().optional(),
+}).strict();
+
+export const privacySettingsSchema = z.object({
+  showPhone: z.boolean().optional(),
+  showEmail: z.boolean().optional(),
+  showLocation: z.boolean().optional(),
+  showDonations: z.boolean().optional(),
+  showSocials: z.boolean().optional(),
+}).strict();
+
+export const updateSettingsSchema = z.object({
+  notifications: notificationsSettingsSchema.optional(),
+  privacy: privacySettingsSchema.optional(),
+}).strict().refine(
+  (value) => value.notifications !== undefined || value.privacy !== undefined,
+  { message: "notifications or privacy settings are required" },
+);
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type SendOtpInput = z.infer<typeof sendOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;

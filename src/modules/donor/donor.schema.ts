@@ -19,10 +19,10 @@ const DonorSchema = new Schema<IDonor>(
       required: true,
       unique: true,
     },
-    // isAvailable: {
-    //   type: Boolean,
-    //   default: false,
-    // },
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
     lastDonationDate: {
       type: Date,
       default: null,
@@ -46,15 +46,8 @@ const DonorSchema = new Schema<IDonor>(
     versionKey: false,
   }
 );
-// ── auto-calculates from nextAvailableAt ──
-DonorSchema.virtual("isAvailable").get(function () {
-  if (!this.nextAvailableAt) return true;        // never donated → available
-  return new Date() >= this.nextAvailableAt;     // 90 days passed → available
-});
-
 DonorSchema.index({ isVerified: 1, nextAvailableAt: 1 });
-
-// DonorSchema.index({ isAvailable: 1, isVerified: 1, nextAvailableAt: 1 });
+DonorSchema.index({ isAvailable: 1, isVerified: 1, nextAvailableAt: 1 });
 
 const Donor = mongoose.model<IDonor>("Donor", DonorSchema);
 export default Donor;

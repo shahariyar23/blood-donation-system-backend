@@ -153,11 +153,6 @@ export const forgotPassword = asyncHandler(
 // ══════════════════════════════════════════════════════
 export const resetPassword = asyncHandler(
   async (req: Request, res: Response) => {
-    // Verify admin role or hospital can reset their own
-    if (req.user?.role !== "admin" && req.user?.role !== "hospital") {
-      throw new ApiError(403, "Permission denied");
-    }
-
     const result = await HospitalAuthService.resetPassword(req.body);
 
     res.status(200).json(

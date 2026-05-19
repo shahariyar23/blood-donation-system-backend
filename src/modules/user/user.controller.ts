@@ -2,13 +2,15 @@ import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 import User from "./User.schema";
-import { Donor, CommunityReport, UserActivity, Donation } from "../index";
+import { Donor, CommunityReport, UserActivity, Donation, Report } from "../index";
 import { logActivity } from "./activity.logger";
 import {
   ApiResponse,
   ApiError,
   asyncHandler,
   paginate,
+  isDonorAvailable,
+  ensureDonorAvailability,
 } from "../../shared/utils";
 
 // ── Helper ─────────────────────────────────────────────
@@ -33,10 +35,11 @@ const attachDonorFields = async (user: any) => {
     "isAvailable totalDonations lastDonationDate nextAvailableAt isVerified",
   );
 
-  const now = new Date();
-  const computedAvailable = donor?.nextAvailableAt
-    ? now >= donor.nextAvailableAt
-    : donor?.isAvailable ?? false;
+  if (donor) {
+    await ensureDonorAvailability(donor);
+  }
+
+  const computedAvailable = isDonorAvailable(donor);
 
   return {
     ...base,
@@ -295,7 +298,7 @@ export const toggleAvailability = asyncHandler(
       throw new ApiError(404, "Donor profile not found");
     }
 
-    donor.isAvailable = !donor.isAvailable;
+    donor.isAvailable = !donor.isAvailable;  // Manual toggle only
     await donor.save();
 
     await logActivity(req, {
@@ -648,6 +651,54 @@ export const reportUser = asyncHandler(async (req: Request, res: Response) => {
     new ApiResponse(201, "Report submitted successfully", {
       reportId: report._id,
       communityFlags: updated?.communityFlags ?? 0,
+    }),
+  );
+});
+
+// ══════════════════════════════════════════════════════
+//  POST /users/reports
+//  Create a new report
+// ══════════════════════════════════════════════════════
+export const createReport = asyncHandler(async (req: Request, res: Response) => {
+  const { reportedUser, reason, description } = req.body as {
+    reportedUser: string;
+    reason: string;
+    description?: string;
+  };
+
+  if (!isValidId(reportedUser)) {
+    throw new ApiError(400, "Invalid reported user ID");
+  }
+
+  if (reportedUser === req.user!.id) {
+    throw new ApiError(400, "You cannot report yourself");
+  }
+
+  const reportedUserDoc = await User.findById(reportedUser).select("isActive");
+  if (!reportedUserDoc || !reportedUserDoc.isActive) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const report = await Report.create({
+    reportedBy: req.user!.id,
+    reportedUser,
+    reason,
+    description: description || "",
+  });
+
+  await UserActivity.create({
+    userId: req.user!.id,
+    sessionId: req.user!.sessionId,
+    event: "report_submit",
+    meta: { reportedUser, reason, reportId: report._id },
+    ip: req.ip,
+    userAgent: req.headers["user-agent"] || "",
+    timestamp: new Date(),
+  }).catch(() => {});
+
+  res.status(201).json(
+    new ApiResponse(201, "Report submitted successfully", {
+      reportId: report._id,
     }),
   );
 });

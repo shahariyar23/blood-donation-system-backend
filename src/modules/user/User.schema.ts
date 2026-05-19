@@ -15,32 +15,49 @@ export interface IUser extends Document {
   lastReceivedDate: Date | null;
   totalReceived: number;
   location: {
-    displayName: { type: String; default: "" };
+    displayName: string;
     // Address breakdown
-    road: { type: String; default: "" };
-    quarter: { type: String; default: "" };
-    suburb: { type: String; default: "" };
+    road: string;
+    quarter: string;
+    suburb: string;
 
-    city: { type: String; default: "" }; // fallback if exists
-    county: { type: String; default: "" };
-    state_district: { type: String; default: "" };
-    state: { type: String; default: "" };
+    city: string;
+    county: string;
+    state_district: string;
+    state: string;
 
-    postcode: { type: String; default: "" };
+    postcode: string;
 
-    country: { type: String; default: "" };
-    country_code: { type: String; default: "" };
+    country: string;
+    country_code: string;
 
     // Coordinates
     coordinates: {
-      lat: { type: Number; default: null };
-      lng: { type: Number; default: null };
+      lat: number;
+      lng: number;
     };
   };
   socialLinks: {
     facebook: string | null;
     instagram: string | null;
     twitter: string | null;
+  };
+  settings: {
+    notifications: {
+      bloodRequests: boolean;
+      donorResponses: boolean;
+      requestFulfilled: boolean;
+      systemUpdates: boolean;
+      emailDigest: boolean;
+      smsAlerts: boolean;
+    };
+    privacy: {
+      showPhone: boolean;
+      showEmail: boolean;
+      showLocation: boolean;
+      showDonations: boolean;
+      showSocials: boolean;
+    };
   };
   role: "donor" | "user" | "admin" | "hospital";
   isVerified: boolean;
@@ -161,6 +178,23 @@ const UserSchema = new Schema<IUser>(
       facebook: { type: String, default: null },
       instagram: { type: String, default: null },
       twitter: { type: String, default: null },
+    },
+    settings: {
+      notifications: {
+        bloodRequests: { type: Boolean, default: true },
+        donorResponses: { type: Boolean, default: true },
+        requestFulfilled: { type: Boolean, default: true },
+        systemUpdates: { type: Boolean, default: false },
+        emailDigest: { type: Boolean, default: true },
+        smsAlerts: { type: Boolean, default: false },
+      },
+      privacy: {
+        showPhone: { type: Boolean, default: false },
+        showEmail: { type: Boolean, default: false },
+        showLocation: { type: Boolean, default: true },
+        showDonations: { type: Boolean, default: true },
+        showSocials: { type: Boolean, default: true },
+      },
     },
     role: {
       type: String,

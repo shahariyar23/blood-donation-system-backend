@@ -5,8 +5,11 @@ import User from "../user/User.schema";
 import {
 	CancelBloodRequestParams,
 	CreateBloodRequestInput,
+	FulfillBloodRequestParams,
 	GetUserBloodRequestsQuery,
+	GetAllBloodRequestsQuery,
 } from "./bloodRequest.validation";
+import { donorRespondedTemplate } from "../../utils/email.payloads";
 
 const addDays = (date: Date, days: number) => {
 	const nextDate = new Date(date);
@@ -57,10 +60,83 @@ export class BloodRequestService {
 
 	static async getUserBloodRequests(userId: string, query: GetUserBloodRequestsQuery) {
 		const { skip, limit, page, totalPages } = paginate(query as Record<string, any>);
-		const filter: Record<string, any> = { requestedBy: new Types.ObjectId(userId) };
+		const baseFilter: Record<string, any> = { requestedBy: new Types.ObjectId(userId) };
+
+		const listFilter = { ...baseFilter };
+		if (query.status) {
+			if (query.status === "all") {
+				listFilter.status = { $in: ["active", "expired"] };
+			} else {
+				listFilter.status = query.status;
+			}
+		}
+
+		const [requests, total, statsResult] = await Promise.all([
+			BloodRequest.find(listFilter)
+				.sort({ createdAt: -1 })
+				.skip(skip)
+				.limit(limit)
+				.populate("respondedDonors", "name phone bloodType email")
+				.populate("fulfilledBy", "name phone bloodType email"),
+			BloodRequest.countDocuments(listFilter),
+			BloodRequest.aggregate([
+				{ $match: baseFilter },
+				{
+					$group: {
+						_id: null,
+						total: { $sum: 1 },
+						active: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+						fulfilled: { $sum: { $cond: [{ $eq: ["$status", "fulfilled"] }, 1, 0] } },
+						cancelled: {
+							$sum: {
+								$cond: [
+									{ $in: ["$status", ["expired", "cancelled"]] },
+									1,
+									0,
+								],
+							},
+						},
+					},
+				},
+			]),
+		]);
+
+		const stats = statsResult[0] || { total: 0, active: 0, fulfilled: 0, cancelled: 0 };
+
+		return {
+			requests,
+			stats: {
+				total: stats.total,
+				active: stats.active,
+				fulfilled: stats.fulfilled,
+				cancelled: stats.cancelled,
+			},
+			pagination: {
+				total,
+				page,
+				limit,
+				totalPages: totalPages(total),
+			},
+		};
+	}
+
+	static async getAllBloodRequests(userId: string | null, query: GetAllBloodRequestsQuery) {
+		const { skip, limit, page, totalPages } = paginate(query as Record<string, any>);
+		const filter: Record<string, any> = {};
+		console.log("[user id:]", userId)
+		console.log("[requestdBy id:]", filter)
+
+		// If user is logged in, exclude requests created by that user; else show all
+		if (userId) {
+			filter.requestedBy = { $ne: new Types.ObjectId(userId) };
+		}
 
 		if (query.status) {
-			filter.status = query.status;
+			if (query.status === "all") {
+				filter.status = { $in: ["active", "expired"] };
+			} else {
+				filter.status = query.status;
+			}
 		}
 
 		const [requests, total] = await Promise.all([
@@ -100,6 +176,28 @@ export class BloodRequestService {
 		return request;
 	}
 
+	static async fulfillBloodRequest(userId: string, params: FulfillBloodRequestParams) {
+		const request = await BloodRequest.findById(params.id);
+
+		if (!request) {
+			throw new ApiError(404, "Blood request not found");
+		}
+
+		if (!request.requestedBy.equals(new Types.ObjectId(userId))) {
+			throw new ApiError(403, "Only the user who created this blood request can fulfill it");
+		}
+
+		if (request.status !== "active") {
+			throw new ApiError(400, "Only active blood requests can be fulfilled");
+		}
+
+		request.status = "fulfilled";
+		request.isExpired = false;
+		await request.save();
+
+		return request;
+	}
+
 	static async respondToRequest(donorId: string, requestId: string, message?: string) {
 		const request = await BloodRequest.findById(requestId);
 
@@ -112,6 +210,18 @@ export class BloodRequestService {
 		}
 
 		const donorObjectId = new Types.ObjectId(donorId);
+
+		// Check if the donor is the same as the requester
+		if (request.requestedBy.equals(donorObjectId)) {
+			// Get donor's phone number for SMS
+			const donorUser = await User.findById(donorId).select("phone name settings").lean();
+			if (donorUser?.phone && donorUser.settings?.notifications?.smsAlerts === true) {
+				const smsMessage = "You created this blood request, so you cannot respond to it.";
+				console.log(`[SMS] To: ${donorUser.phone} - ${smsMessage}`);
+			}
+			throw new ApiError(400, "You cannot respond to your own blood request");
+		}
+
 		// prevent duplicate responses
 		if (request.respondedDonors?.some((d) => d.equals(donorObjectId))) {
 			throw new ApiError(400, "You have already responded to this request");
@@ -123,11 +233,13 @@ export class BloodRequestService {
 
 		// Fetch requester and donor details
 		const [requester, donor] = await Promise.all([
-			User.findById(request.requestedBy).select("email name").lean(),
+			User.findById(request.requestedBy).select("email name settings").lean(),
 			User.findById(donorId).select("name phone bloodType email").lean(),
 		]);
 
-		if (requester?.email) {
+		const shouldEmailRequester = requester?.settings?.notifications?.donorResponses !== false;
+
+		if (requester?.email && shouldEmailRequester) {
 			// compose email
 			const subject = `Someone responded to your blood request (${request.bloodType})`;
 			const donorInfo = donor
@@ -137,13 +249,12 @@ export class BloodRequestService {
 				   <p><strong>Email:</strong> ${donor.email || "-"}</p>`
 				: "";
 
-			const html = `
-				<p>Hello,</p>
-				<p>A donor has responded to your blood request for <strong>${request.bloodType}</strong> (patient: ${request.patientName}).</p>
-				${donorInfo}
-				${message ? `<p><strong>Message from donor:</strong> ${message}</p>` : ""}
-				<p>Please login to your account to view and coordinate the donation.</p>
-				`;
+			const html = donorRespondedTemplate({
+				bloodType: request.bloodType,
+				patientName: request.patientName,
+				donorInfo,
+				message,
+			});
 
 			try {
 				await sendEmail({ to: requester.email, subject, html });

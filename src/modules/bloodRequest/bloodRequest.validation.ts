@@ -4,7 +4,7 @@ const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid id");
 
 const urgencyEnum = z.enum(["critical", "urgent", "moderate", "planned"]);
 
-const statusEnum = z.enum(["active", "fulfilled", "expired", "cancelled"]);
+const statusEnum = z.enum(["active", "fulfilled", "expired", "cancelled", "all"]);
 
 const futureDate = z.preprocess((value) => {
 	if (value instanceof Date) {
@@ -67,7 +67,29 @@ export const getUserBloodRequestsQuerySchema = z.object({
 	}, z.number().int().min(1).max(100).optional()),
 });
 
+export const getAllBloodRequestsQuerySchema = z.object({
+	status: statusEnum.optional(),
+	page: z.preprocess((value) => {
+		if (value === undefined || value === null || value === "") {
+			return undefined;
+		}
+
+		return Number(value);
+	}, z.number().int().min(1).optional()),
+	limit: z.preprocess((value) => {
+		if (value === undefined || value === null || value === "") {
+			return undefined;
+		}
+
+		return Number(value);
+	}, z.number().int().min(1).max(100).optional()),
+});
+
 export const cancelBloodRequestParamsSchema = z.object({
+	id: objectId,
+});
+
+export const fulfillBloodRequestParamsSchema = z.object({
 	id: objectId,
 });
 
@@ -77,4 +99,6 @@ export const respondBloodRequestParamsSchema = z.object({
 
 export type CreateBloodRequestInput = z.infer<typeof createBloodRequestSchema>;
 export type GetUserBloodRequestsQuery = z.infer<typeof getUserBloodRequestsQuerySchema>;
+export type GetAllBloodRequestsQuery = z.infer<typeof getAllBloodRequestsQuerySchema>;
 export type CancelBloodRequestParams = z.infer<typeof cancelBloodRequestParamsSchema>;
+export type FulfillBloodRequestParams = z.infer<typeof fulfillBloodRequestParamsSchema>;

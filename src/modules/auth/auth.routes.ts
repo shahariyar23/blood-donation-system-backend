@@ -11,6 +11,10 @@ import {
   verifyEmailOtp,
   getAuthUser,
   updateAuthUser,
+  getAuthSettings,
+  updateAuthSettings,
+  updateNotificationSettings,
+  updatePrivacySettings,
   changePassword,
   getMySessions,
   logoutOtherSessions,
@@ -34,6 +38,9 @@ import {
   resetPasswordSchema,
   sendOtpSchema,
   verifyOtpSchema,
+  updateSettingsSchema,
+  notificationsSettingsSchema,
+  privacySettingsSchema,
 } from "./auth.validation";
 
 const router = Router();
@@ -80,6 +87,28 @@ router.get("/me", protect, getAuthUser);
 
 // PATCH /api/auth/me
 router.patch("/me", protect, updateAuthUser);
+
+// GET /api/auth/settings
+router.get("/settings", protect, getAuthSettings);
+
+// PATCH /api/auth/settings
+router.patch("/settings", protect, validate(updateSettingsSchema), updateAuthSettings);
+
+// PATCH /api/auth/settings/notifications
+router.patch(
+  "/settings/notifications",
+  protect,
+  validate(notificationsSettingsSchema),
+  updateNotificationSettings,
+);
+
+// PATCH /api/auth/settings/privacy
+router.patch(
+  "/settings/privacy",
+  protect,
+  validate(privacySettingsSchema),
+  updatePrivacySettings,
+);
 
 // POST /api/auth/change-password
 router.post("/change-password", protect, changePassword);

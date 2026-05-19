@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { ApiError } from "../../shared/utils";
+import { ApiError, isDonorAvailable, donorAvailabilityMatch, sanitizePublicDonor } from "../../shared/utils";
 import { BloodRequest, Donation, Donor, User } from "../index";
 
 type DonorSuggestion = {
@@ -21,6 +21,7 @@ type NearbyDonor = {
 	donations: number;
 	email: string;
 	phone: string;
+	settings?: any;
 };
 
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"];
@@ -93,13 +94,7 @@ const computeDistanceKm = (
 	return 2 * earthRadiusKm * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const getAvailability = (donor: any) => {
-	if (!donor?.nextAvailableAt) {
-		return true;
-	}
-
-	return new Date(donor.nextAvailableAt).getTime() <= Date.now();
-};
+const getAvailability = (donor: any) => isDonorAvailable(donor);
 
 export class PublicService {
 	static async getBloodGroupAvailability() {
@@ -121,12 +116,7 @@ export class PublicService {
 			},
 			{ $unwind: "$donor" },
 			{
-				$match: {
-					$or: [
-						{ "donor.nextAvailableAt": null },
-						{ "donor.nextAvailableAt": { $lte: new Date() } },
-					],
-				},
+				$match: donorAvailabilityMatch(new Date()),
 			},
 			{
 				$group: {
@@ -213,13 +203,14 @@ export class PublicService {
 					donations: user.donor.totalDonations || 0,
 					email: user.email || "",
 					phone: user.phone || "",
+					settings: user.settings,
 					distanceKm,
 				};
 			})
-			.filter((donor): donor is NearbyDonor & { distanceKm: number } => donor !== null)
+			.filter((donor): donor is NearbyDonor & { settings: any; distanceKm: number } => donor !== null)
 			.sort((left, right) => left.distanceKm - right.distanceKm)
 			.slice(0, limit)
-			.map(({ distanceKm, ...donor }) => donor);
+			.map(({ distanceKm, ...donor }) => sanitizePublicDonor(donor));
 
 		return {
 			donors,
@@ -296,12 +287,7 @@ export class PublicService {
 				},
 				{ $unwind: "$donor" },
 				{
-					$match: {
-						$or: [
-							{ "donor.nextAvailableAt": null },
-							{ "donor.nextAvailableAt": { $lte: new Date() } },
-						],
-					},
+					$match: donorAvailabilityMatch(new Date()),
 				},
 				{ $count: "total" },
 			]),

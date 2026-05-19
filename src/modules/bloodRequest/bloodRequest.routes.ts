@@ -1,19 +1,23 @@
 import { Router } from "express";
 import { ZodError, ZodSchema } from "zod";
-import { protect } from "../../middleware/auth.middleware";
+import { protect, optionalProtect } from "../../middleware/auth.middleware";
 import { validate } from "../../middleware/validation.middleware";
 import { ApiError } from "../../shared/utils";
 import {
 	cancelBloodRequest,
 	createBloodRequest,
+	fulfillBloodRequest,
 	getLatestBloodRequests,
 	getUserBloodRequests,
     respondDonor,
+	getAllBloodRequests,
 } from "./bloodRequest.controller";
 import {
 	cancelBloodRequestParamsSchema,
 	createBloodRequestSchema,
+	fulfillBloodRequestParamsSchema,
 	getUserBloodRequestsQuerySchema,
+	getAllBloodRequestsQuerySchema,
 } from "./bloodRequest.validation";
 
 import { respondBloodRequestParamsSchema } from "./bloodRequest.validation";
@@ -66,8 +70,10 @@ const validateParams = (schema: ZodSchema) => {
 
 router.post("/", protect, validate(createBloodRequestSchema), createBloodRequest);
 router.get("/latest", getLatestBloodRequests);
+router.get("/all", optionalProtect, validateQuery(getAllBloodRequestsQuerySchema), getAllBloodRequests);
 router.post("/:id/respond", protect, validateParams(respondBloodRequestParamsSchema), respondDonor);
 router.get("/", protect, validateQuery(getUserBloodRequestsQuerySchema), getUserBloodRequests);
+router.patch("/:id/fulfilled", protect, validateParams(fulfillBloodRequestParamsSchema), fulfillBloodRequest);
 router.patch("/:id/cancel", protect, validateParams(cancelBloodRequestParamsSchema), cancelBloodRequest);
 
 export default router;

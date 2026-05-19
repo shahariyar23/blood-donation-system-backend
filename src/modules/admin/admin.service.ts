@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { ApiError, paginate } from "../../shared/utils";
-import { BloodRequest, CommunityReport, Donation, Donor, User, Verification, Settings, Hospital } from "../index";
+import { BloodRequest, CommunityReport, Donation, Donor, User, Verification, Settings, Hospital, Report } from "../index";
 import type { ISettings } from "./Settings.schema";
 
 type AdminUsersQuery = {
@@ -28,6 +28,40 @@ const validateObjectId = (id: string, label: string) => {
   }
 };
 
+const toDateKey = (date: Date) => date.toISOString().slice(0, 10);
+
+const toMonthKey = (date: Date) => date.toISOString().slice(0, 7);
+
+const getRecentMonthKeys = (count: number) => {
+  const now = new Date();
+  const months: string[] = [];
+
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    months.push(
+      toMonthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1))),
+    );
+  }
+
+  return months;
+};
+
+const getRecentDateKeys = (count: number) => {
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  const dates: string[] = [];
+  for (let offset = count - 1; offset >= 0; offset -= 1) {
+    const date = new Date(today);
+    date.setUTCDate(today.getUTCDate() - offset);
+    dates.push(toDateKey(date));
+  }
+
+  return dates;
+};
+
+const normalizeCountMap = <T extends { _id: string; count: number }>(items: T[]) =>
+  new Map(items.map((item) => [item._id, item.count]));
+
 export class AdminService {
   static async getAdminMe(adminId: string) {
     const admin = await User.findById(adminId).select(
@@ -42,6 +76,12 @@ export class AdminService {
   }
 
   static async getDashboard() {
+    const monthKeys = getRecentMonthKeys(6);
+    const dateKeys = getRecentDateKeys(7);
+    const monthlyStart = new Date(`${monthKeys[0]}-01T00:00:00.000Z`);
+    const weeklyStart = new Date(`${dateKeys[0]}T00:00:00.000Z`);
+    const activeDonationStatuses = ["approved", "completed"];
+
     const [
       totalUsers,
       totalAdmins,
@@ -54,24 +94,106 @@ export class AdminService {
       totalBloodRequests,
       recentUsers,
       recentReports,
+      monthlyDonations,
+      monthlyRequests,
+      weeklyDonorRegistrations,
+      bloodTypeDistribution,
+      reportStatusBreakdown,
     ] = await Promise.all([
-      User.countDocuments({}),
-      User.countDocuments({ role: "admin" }),
-      User.countDocuments({ role: "donor" }),
-      User.countDocuments({ role: "hospital" }),
+      User.countDocuments({ isDeleted: { $ne: true } }),
+      User.countDocuments({ role: "admin", isDeleted: { $ne: true } }),
+      User.countDocuments({ role: "donor", isDeleted: { $ne: true } }),
+      Hospital.countDocuments({ isDeleted: { $ne: true } }),
       User.countDocuments({ isActive: true, isDeleted: { $ne: true } }),
-      CommunityReport.countDocuments({ status: "pending" }),
-      CommunityReport.countDocuments({}),
+      Report.countDocuments({ status: "pending" }),
+      Report.countDocuments({}),
       Donation.countDocuments({}),
       BloodRequest.countDocuments({}),
-      User.find({}).select("name email role isActive createdAt").sort({ createdAt: -1 }).limit(5),
-      CommunityReport.find({})
+      User.find({ isDeleted: { $ne: true } })
+        .select("name email role bloodType isVerified isActive createdAt")
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
+      Report.find({})
         .select("reason status createdAt reportedBy reportedUser")
         .populate("reportedBy", "name email role")
         .populate("reportedUser", "name email role")
         .sort({ createdAt: -1 })
-        .limit(5),
+        .limit(5)
+        .lean(),
+      Donation.aggregate([
+        {
+          $match: {
+            status: { $in: activeDonationStatuses },
+            createdAt: { $gte: monthlyStart },
+          },
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      BloodRequest.aggregate([
+        { $match: { createdAt: { $gte: monthlyStart } } },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      User.aggregate([
+        {
+          $match: {
+            role: "donor",
+            isDeleted: { $ne: true },
+            createdAt: { $gte: weeklyStart },
+          },
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+      User.aggregate([
+        {
+          $match: {
+            role: "donor",
+            isDeleted: { $ne: true },
+            bloodType: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: "$bloodType",
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+      Report.aggregate([
+        {
+          $group: {
+            _id: "$status",
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
     ]);
+
+    const donors = await Donor.find({
+      userId: { $in: recentUsers.map((user) => user._id) },
+    }).lean();
+    const donorByUserId = new Map(donors.map((donor) => [String(donor.userId), donor]));
+
+    const donationCountByMonth = normalizeCountMap(monthlyDonations);
+    const requestCountByMonth = normalizeCountMap(monthlyRequests);
+    const donorRegistrationCountByDate = normalizeCountMap(weeklyDonorRegistrations);
 
     return {
       stats: {
@@ -85,7 +207,34 @@ export class AdminService {
         totalDonations,
         totalBloodRequests,
       },
-      recentUsers,
+      charts: {
+        monthlyTrend: monthKeys.map((month) => ({
+          month,
+          donations: donationCountByMonth.get(month) || 0,
+          requests: requestCountByMonth.get(month) || 0,
+        })),
+        weeklyDonorRegistrations: dateKeys.map((date) => ({
+          date,
+          count: donorRegistrationCountByDate.get(date) || 0,
+        })),
+        bloodTypeDistribution: bloodTypeDistribution.map((item) => ({
+          bloodType: item._id,
+          count: item.count,
+        })),
+        reportStatusBreakdown: reportStatusBreakdown.map((item) => ({
+          status: item._id,
+          count: item.count,
+        })),
+      },
+      recentUsers: recentUsers.map((user) => {
+        const donor = donorByUserId.get(String(user._id));
+
+        return {
+          ...user,
+          isDonorVerified: donor?.isVerified ?? false,
+          isVerifyDonor: donor?.isVerified ?? false,
+        };
+      }),
       recentReports,
     };
   }
@@ -113,126 +262,35 @@ export class AdminService {
         .select("name email phone avatar role bloodType isVerified isActive communityFlags createdAt")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       User.countDocuments(filter),
     ]);
 
+    const donors = await Donor.find({
+      userId: { $in: users.map((user) => user._id) },
+    }).lean();
+
+    const donorByUserId = new Map(
+      donors.map((donor) => [String(donor.userId), donor]),
+    );
+
     return {
-      users,
+      users: users.map((user) => {
+        const donor = donorByUserId.get(String(user._id));
+
+        return {
+          ...user,
+          donor: donor || null,
+          isVerifyDonor: donor?.isVerified ?? false,
+        };
+      }),
       pagination: {
         total,
         page,
         limit,
         totalPages: totalPages(total),
       },
-    };
-  }
-
-  static async getHospitals(query: Record<string, any>) {
-    const { search } = query;
-
-    const filter: Record<string, any> = { isDeleted: { $ne: true } };
-
-    if (search) {
-      const regex = new RegExp(String(search), "i");
-      filter.$or = [
-        { hospitalName: { $regex: regex } },
-        { registrationNumber: { $regex: regex } },
-        { email: { $regex: regex } },
-        { phone: { $regex: regex } },
-        { adminName: { $regex: regex } },
-        { adminEmail: { $regex: regex } },
-        { licenseNumber: { $regex: regex } },
-      ];
-    }
-
-    const hospitals = await Hospital.find(filter)
-      .select(
-        "hospitalName email phone isVerified isActive createdAt updatedAt",
-      )
-      .sort({ createdAt: -1 });
-
-    const formatted = hospitals.map((hospital: any) => ({
-      _id: hospital._id,
-      hospitalName: hospital.hospitalName,
-      registrationNumber: hospital.registrationNumber,
-      email: hospital.email,
-      phone: hospital.phone,
-      website: hospital.website,
-      licenseNumber: hospital.licenseNumber,
-      adminName: hospital.adminName,
-      adminEmail: hospital.adminEmail,
-      adminPhone: hospital.adminPhone,
-      totalBedCapacity: hospital.totalBedCapacity,
-      bloodBankCapacity: hospital.bloodBankCapacity,
-      isVerified: hospital.isVerified,
-      isActive: hospital.isActive,
-      isDeleted: hospital.isDeleted,
-      address: hospital.address,
-      location: hospital.location,
-      createdAt: hospital.createdAt,
-      updatedAt: hospital.updatedAt,
-    }));
-
-    return {
-      hospitals: formatted,
-      total: formatted.length,
-    };
-  }
-
-  static async getHospitalById(hospitalId: string) {
-    validateObjectId(hospitalId, "hospital ID");
-
-    const hospital = await Hospital.findById(hospitalId).select(
-      "hospitalName registrationNumber email phone website licenseNumber adminName adminEmail adminPhone totalBedCapacity bloodBankCapacity isVerified isActive isDeleted address location createdAt updatedAt",
-    );
-
-    if (!hospital) {
-      throw new ApiError(404, "Hospital not found");
-    }
-
-    const [totalDonationsReceived, unitsAgg] = await Promise.all([
-      Donation.countDocuments({ hospitalId: hospital._id, status: "approved" }),
-      Donation.aggregate([
-        {
-          $match: {
-            hospitalId: hospital._id,
-            status: "approved",
-          },
-        },
-        {
-          $group: {
-            _id: null,
-            totalUnits: { $sum: "$units" },
-          },
-        },
-      ]),
-    ]);
-
-    return {
-      _id: hospital._id,
-      hospitalName: hospital.hospitalName,
-      registrationNumber: hospital.registrationNumber,
-      email: hospital.email,
-      phone: hospital.phone,
-      website: hospital.website,
-      licenseNumber: hospital.licenseNumber,
-      adminName: hospital.adminName,
-      adminEmail: hospital.adminEmail,
-      adminPhone: hospital.adminPhone,
-      totalBedCapacity: hospital.totalBedCapacity,
-      bloodBankCapacity: hospital.bloodBankCapacity,
-      isVerified: hospital.isVerified,
-      isActive: hospital.isActive,
-      isDeleted: hospital.isDeleted,
-      address: hospital.address,
-      location: hospital.location,
-      stats: {
-        totalDonationsReceived,
-        totalUnitsReceived: unitsAgg[0]?.totalUnits || 0,
-      },
-      createdAt: hospital.createdAt,
-      updatedAt: hospital.updatedAt,
     };
   }
 
@@ -331,6 +389,252 @@ export class AdminService {
 
     return userObj;
   }
+  
+  static async updateUserStatus(targetUserId: string, isActive: boolean) {
+    validateObjectId(targetUserId, "user ID");
+
+    const user = await User.findByIdAndUpdate(
+      targetUserId,
+      { $set: { isActive } },
+      { new: true },
+    ).select("_id name email role isActive");
+
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    return user;
+  }
+    static async verifyDonor(
+    targetUserId: string,
+    isVerified = true,
+    isActive?: boolean,
+  ) {
+    validateObjectId(targetUserId, "user ID");
+
+    const user = await User.findById(targetUserId).select("_id name role");
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    if (user.role !== "donor") {
+      throw new ApiError(400, "User is not a donor");
+    }
+
+    const donor = await Donor.findOne({ userId: user._id });
+    if (!donor) {
+      throw new ApiError(404, "Donor profile not found");
+    }
+
+    donor.isVerified = isVerified;
+    await donor.save();
+
+    if (typeof isActive === "boolean") {
+      await User.findByIdAndUpdate(user._id, { $set: { isActive } });
+    }
+
+    const updatedUser = await User.findById(user._id).select("_id name isActive");
+
+    return {
+      id: user._id,
+      name: user.name,
+      isDonorVerified: donor.isVerified,
+      isActive: updatedUser?.isActive ?? true,
+    };
+  }
+    static async verifyUser(
+    targetUserId: string,
+    isVerified = true,
+    isActive?: boolean,
+  ) {
+    validateObjectId(targetUserId, "user ID");
+
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      throw new ApiError(404, "User not found");
+    }
+
+    user.isVerified = isVerified;
+
+    if (typeof isActive === "boolean") {
+      user.isActive = isActive;
+    }
+
+    await user.save();
+
+    return {
+      _id: user._id,
+      isVerified: user.isVerified,
+      isActive: user.isActive,
+    };
+  }
+
+
+
+
+
+
+
+  static async getHospitals(query: Record<string, any>) {
+    const { search } = query;
+
+    const filter: Record<string, any> = { isDeleted: { $ne: true } };
+
+    if (search) {
+      const regex = new RegExp(String(search), "i");
+      filter.$or = [
+        { hospitalName: { $regex: regex } },
+        { registrationNumber: { $regex: regex } },
+        { email: { $regex: regex } },
+        { phone: { $regex: regex } },
+        { adminName: { $regex: regex } },
+        { adminEmail: { $regex: regex } },
+        { licenseNumber: { $regex: regex } },
+      ];
+    }
+
+    const hospitals = await Hospital.find(filter)
+      .select(
+        "hospitalName email phone isVerified isActive createdAt updatedAt",
+      )
+      .sort({ createdAt: -1 });
+
+    const formatted = hospitals.map((hospital: any) => ({
+      _id: hospital._id,
+      hospitalName: hospital.hospitalName,
+      registrationNumber: hospital.registrationNumber,
+      email: hospital.email,
+      phone: hospital.phone,
+      website: hospital.website,
+      licenseNumber: hospital.licenseNumber,
+      adminName: hospital.adminName,
+      adminEmail: hospital.adminEmail,
+      adminPhone: hospital.adminPhone,
+      totalBedCapacity: hospital.totalBedCapacity,
+      bloodBankCapacity: hospital.bloodBankCapacity,
+      isVerified: hospital.isVerified,
+      isActive: hospital.isActive,
+      isDeleted: hospital.isDeleted,
+      address: hospital.address,
+      location: hospital.location,
+      createdAt: hospital.createdAt,
+      updatedAt: hospital.updatedAt,
+    }));
+
+    return {
+      hospitals: formatted,
+      total: formatted.length,
+    };
+  }
+  static async getHospitalById(hospitalId: string) {
+    validateObjectId(hospitalId, "hospital ID");
+
+    const hospital = await Hospital.findById(hospitalId).select(
+      "hospitalName registrationNumber email phone website licenseNumber adminName adminEmail adminPhone totalBedCapacity bloodBankCapacity isVerified isActive isDeleted address location createdAt updatedAt",
+    );
+
+    if (!hospital) {
+      throw new ApiError(404, "Hospital not found");
+    }
+
+    const [totalDonationsReceived, unitsAgg] = await Promise.all([
+      Donation.countDocuments({ hospitalId: hospital._id, status: "approved" }),
+      Donation.aggregate([
+        {
+          $match: {
+            hospitalId: hospital._id,
+            status: "approved",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalUnits: { $sum: "$units" },
+          },
+        },
+      ]),
+    ]);
+
+    return {
+      _id: hospital._id,
+      hospitalName: hospital.hospitalName,
+      registrationNumber: hospital.registrationNumber,
+      email: hospital.email,
+      phone: hospital.phone,
+      website: hospital.website,
+      licenseNumber: hospital.licenseNumber,
+      adminName: hospital.adminName,
+      adminEmail: hospital.adminEmail,
+      adminPhone: hospital.adminPhone,
+      totalBedCapacity: hospital.totalBedCapacity,
+      bloodBankCapacity: hospital.bloodBankCapacity,
+      isVerified: hospital.isVerified,
+      isActive: hospital.isActive,
+      isDeleted: hospital.isDeleted,
+      address: hospital.address,
+      location: hospital.location,
+      stats: {
+        totalDonationsReceived,
+        totalUnitsReceived: unitsAgg[0]?.totalUnits || 0,
+      },
+      createdAt: hospital.createdAt,
+      updatedAt: hospital.updatedAt,
+    };
+  }
+  static async updateHospitalStatus(hospitalId: string, isActive: boolean) {
+    validateObjectId(hospitalId, "hospital ID");
+
+    const hospital = await Hospital.findByIdAndUpdate(
+      hospitalId,
+      { $set: { isActive } },
+      { new: true },
+    ).select("_id isActive");
+
+    if (!hospital) {
+      throw new ApiError(404, "Hospital not found");
+    }
+
+    return hospital;
+  }
+  static async verifyHospital(hospitalId: string) {
+    validateObjectId(hospitalId, "hospital ID");
+
+    const hospital = await Hospital.findById(hospitalId).select("_id isVerified");
+    if (!hospital) {
+      throw new ApiError(404, "Hospital not found");
+    }
+
+    hospital.isVerified = true;
+    await hospital.save();
+
+    return {
+      _id: hospital._id,
+      isVerified: hospital.isVerified,
+    };
+  }
+  static async unverifyHospital(hospitalId: string) {
+    validateObjectId(hospitalId, "hospital ID");
+
+    const hospital = await Hospital.findById(hospitalId).select("_id isVerified");
+    if (!hospital) {
+      throw new ApiError(404, "Hospital not found");
+    }
+
+    hospital.isVerified = false;
+    await hospital.save();
+
+    return {
+      _id: hospital._id,
+      isVerified: hospital.isVerified,
+    };
+  }
+
+
+
+
+
+
+
 
   static async getReports(query: AdminReportsQuery) {
     const { status, reason, search } = query;
@@ -364,14 +668,14 @@ export class AdminService {
     }
 
     const [reports, total] = await Promise.all([
-      CommunityReport.find(filter)
+      Report.find(filter)
         .populate("reportedBy", "name email role")
         .populate("reportedUser", "name email role")
         .populate("reviewedBy", "name email role")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
-      CommunityReport.countDocuments(filter),
+      Report.countDocuments(filter),
     ]);
 
     return {
@@ -384,104 +688,6 @@ export class AdminService {
       },
     };
   }
-
-  static async updateUserStatus(targetUserId: string, isActive: boolean) {
-    validateObjectId(targetUserId, "user ID");
-
-    const user = await User.findByIdAndUpdate(
-      targetUserId,
-      { $set: { isActive } },
-      { new: true },
-    ).select("_id name email role isActive");
-
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
-
-    return user;
-  }
-
-  static async updateHospitalStatus(hospitalId: string, isActive: boolean) {
-    validateObjectId(hospitalId, "hospital ID");
-
-    const hospital = await Hospital.findByIdAndUpdate(
-      hospitalId,
-      { $set: { isActive } },
-      { new: true },
-    ).select("_id isActive");
-
-    if (!hospital) {
-      throw new ApiError(404, "Hospital not found");
-    }
-
-    return hospital;
-  }
-
-  static async verifyHospital(hospitalId: string) {
-    validateObjectId(hospitalId, "hospital ID");
-
-    const hospital = await Hospital.findById(hospitalId).select("_id isVerified");
-    if (!hospital) {
-      throw new ApiError(404, "Hospital not found");
-    }
-
-    hospital.isVerified = true;
-    await hospital.save();
-
-    return {
-      _id: hospital._id,
-      isVerified: hospital.isVerified,
-    };
-  }
-
-  static async unverifyHospital(hospitalId: string) {
-    validateObjectId(hospitalId, "hospital ID");
-
-    const hospital = await Hospital.findById(hospitalId).select("_id isVerified");
-    if (!hospital) {
-      throw new ApiError(404, "Hospital not found");
-    }
-
-    hospital.isVerified = false;
-    await hospital.save();
-
-    return {
-      _id: hospital._id,
-      isVerified: hospital.isVerified,
-    };
-  }
-
-  static async verifyDonor(targetUserId: string) {
-    validateObjectId(targetUserId, "user ID");
-
-    const user = await User.findById(targetUserId).select("_id name role");
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
-
-    if (user.role !== "donor") {
-      throw new ApiError(400, "User is not a donor");
-    }
-
-    const donor = await Donor.findOne({ userId: user._id });
-    if (!donor) {
-      throw new ApiError(404, "Donor profile not found");
-    }
-
-    if (donor.isVerified) {
-      throw new ApiError(400, "Donor is already verified");
-    }
-
-    donor.isVerified = true;
-    await donor.save();
-
-    return {
-      id: user._id,
-      name: user.name,
-      isDonorVerified: true,
-    };
-  }
-
   static async updateCommunityFlags(
     targetUserId: string,
     action: CommunityFlagsAction,
@@ -549,24 +755,23 @@ export class AdminService {
       communityFlags: updated.communityFlags,
     };
   }
-
   static async reviewReport(
     reportId: string,
     adminId: string,
     body: {
-      status: "reviewed" | "dismissed" | "banned";
+      status: "reviewed" | "dismissed";
       reviewNote?: string;
       banUser?: boolean;
     },
   ) {
     validateObjectId(reportId, "report ID");
 
-    const report = await CommunityReport.findById(reportId);
+    const report = await Report.findById(reportId);
     if (!report) {
       throw new ApiError(404, "Report not found");
     }
 
-    const allowedStatus = ["reviewed", "dismissed", "banned"];
+    const allowedStatus = ["reviewed", "dismissed"];
     if (!allowedStatus.includes(body.status)) {
       throw new ApiError(400, "Invalid report status");
     }
@@ -576,14 +781,14 @@ export class AdminService {
     report.reviewNote = body.reviewNote?.trim() || "";
     await report.save();
 
-    const shouldBanUser = body.status === "banned" || body.banUser === true;
+    const shouldBanUser = body.banUser === true;
     if (shouldBanUser) {
       await User.findByIdAndUpdate(report.reportedUser, {
         $set: { isActive: false },
       });
     }
 
-    const populatedReport = await CommunityReport.findById(report._id)
+    const populatedReport = await Report.findById(report._id)
       .populate("reportedBy", "name email role")
       .populate("reportedUser", "name email role isActive")
       .populate("reviewedBy", "name email role");
@@ -591,26 +796,10 @@ export class AdminService {
     return populatedReport;
   }
 
-  static async verifyUser(targetUserId: string) {
-    validateObjectId(targetUserId, "user ID");
 
-    const user = await User.findById(targetUserId);
-    if (!user) {
-      throw new ApiError(404, "User not found");
-    }
 
-    if (user.isVerified) {
-      throw new ApiError(400, "User is already verified");
-    }
 
-    user.isVerified = true;
-    await user.save();
 
-    return {
-      _id: user._id,
-      isVerified: true,
-    };
-  }
 
   static async getBloodRequests(query: Record<string, any>) {
     const { status } = query;
@@ -654,6 +843,112 @@ export class AdminService {
         hasPrevPage: page > 1,
         hasNextPage: page < totalPages(total),
       },
+    };
+  }
+
+  static async getBloodRequestById(requestId: string) {
+    validateObjectId(requestId, "blood request ID");
+
+    const request: any = await BloodRequest.findById(requestId)
+      .populate(
+        "requestedBy",
+        "name email phone avatar role bloodType isVerified isActive location totalReceived createdAt",
+      )
+      .populate(
+        "respondedDonors",
+        "name email phone avatar role bloodType isVerified isActive location createdAt",
+      )
+      .populate(
+        "fulfilledBy",
+        "name email phone avatar role bloodType isVerified isActive location createdAt",
+      )
+      .select(
+        "requestedBy patientName bloodType units hospital location latitude longitude locationDetails phone urgency neededBy expiresAt notes agreeTerms status respondedDonors fulfilledBy isExpired createdAt updatedAt",
+      )
+      .lean();
+
+    if (!request) {
+      throw new ApiError(404, "Blood request not found");
+    }
+
+    const respondedDonorUsers = Array.isArray(request.respondedDonors)
+      ? request.respondedDonors
+      : [];
+    const respondedDonorIds = respondedDonorUsers
+      .map((donor: any) => donor?._id)
+      .filter(Boolean);
+
+    const donorProfiles = await Donor.find({
+      userId: { $in: respondedDonorIds },
+    }).lean();
+    const donorProfileByUserId = new Map(
+      donorProfiles.map((donor) => [String(donor.userId), donor]),
+    );
+
+    const formatUser = (user: any) => {
+      if (!user) return null;
+
+      return {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatar: user.avatar || null,
+        role: user.role,
+        bloodType: user.bloodType,
+        isVerified: user.isVerified,
+        isActive: user.isActive,
+        location: user.location,
+        totalReceived: user.totalReceived,
+        createdAt: user.createdAt,
+      };
+    };
+
+    const formatRespondedDonor = (user: any) => {
+      const donorProfile = donorProfileByUserId.get(String(user?._id));
+
+      return {
+        ...formatUser(user),
+        donor: donorProfile
+          ? {
+              _id: donorProfile._id,
+              isAvailable: donorProfile.isAvailable,
+              isVerified: donorProfile.isVerified,
+              totalDonations: donorProfile.totalDonations,
+              lastDonationDate: donorProfile.lastDonationDate,
+              nextAvailableAt: donorProfile.nextAvailableAt,
+            }
+          : null,
+        isDonorVerified: donorProfile?.isVerified ?? false,
+        isVerifyDonor: donorProfile?.isVerified ?? false,
+      };
+    };
+
+    return {
+      _id: request._id,
+      requestedBy: formatUser(request.requestedBy),
+      patientName: request.patientName,
+      bloodType: request.bloodType,
+      unitsNeeded: request.units,
+      hospital: request.hospital,
+      location: request.location,
+      latitude: request.latitude,
+      longitude: request.longitude,
+      locationDetails: request.locationDetails,
+      phone: request.phone,
+      urgencyLevel: request.urgency,
+      urgency: request.urgency,
+      neededBy: request.neededBy,
+      expiresAt: request.expiresAt,
+      notes: request.notes,
+      agreeTerms: request.agreeTerms,
+      status: request.status,
+      isExpired: request.isExpired,
+      respondents: respondedDonorUsers.length,
+      respondedDonors: respondedDonorUsers.map(formatRespondedDonor),
+      fulfilledBy: formatUser(request.fulfilledBy),
+      createdAt: request.createdAt,
+      updatedAt: request.updatedAt,
     };
   }
 

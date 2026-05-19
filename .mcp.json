@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "jetro": {
+      "type": "stdio",
+      "command": "C:\\Users\\22203\\.jetro\\runtime\\node-win32-x64.exe",
+      "args": [
+        "C:\\Users\\22203\\.jetro\\mcp-server\\index.js"
+      ],
+      "env": {
+        "JET_WORKSPACE": "c:\\Users\\22203\\OneDrive\\Desktop\\Praticam\\project\\blood donation backend",
+        "JET_API_URL": "https://api.jetro.ai",
+        "PATH": "C:\\Users\\22203\\.jetro\\runtime;C:\\Users\\22203\\AppData\\Local\\Programs\\Microsoft VS Code;C:\\WINDOWS\\system32;C:\\WINDOWS;C:\\WINDOWS\\System32\\Wbem;C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\;C:\\WINDOWS\\System32\\OpenSSH\\;C:\\Program Files\\nodejs\\;C:\\ProgramData\\chocolatey\\bin;C:\\Program Files\\Java\\jdk-25\\bin;C:\\Program Files\\cursor\\resources\\app\\bin;C:\\Program Files\\Pieces for Developers;C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\MongoDB\\mongosh-2.6.0-win32-x64\\bin;C:\\Program Files\\Tailscale\\;C:\\Program Files\\Git\\cmd;c:\\Users\\22203\\AppData\\Local\\Programs\\Trae\\bin;C:\\Users\\22203\\.local\\bin;C:\\Users\\22203\\AppData\\Local\\Programs\\Python\\Launcher\\;C:\\Users\\22203\\AppData\\Local\\Microsoft\\WindowsApps;C:\\Users\\22203\\AppData\\Local\\Programs\\Microsoft VS Code\\bin;C:\\Users\\22203\\AppData\\Roaming\\npm;C:\\ProgramData\\22203\\GitHubDesktop\\bin;C:\\Users\\22203\\AppData\\Local\\GitHubDesktop\\bin;C:\\Users\\22203\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe;;C:\\Users\\22203\\AppData\\Local\\Programs\\Ollama;C:\\Users\\22203\\AppData\\Local\\Programs\\Antigravity\\bin"
+      }
+    }
+  }
+}

@@ -15,7 +15,50 @@ import {
   generateRefreshToken,
   verifyRefreshToken,
   sendEmail,
+  isDonorAvailable,
+  ensureDonorAvailability,
 } from "../../shared/utils";
+import {
+  NominatimResponse,
+  LoginLocationFormat,
+  normalizeLocationToLoginFormat,
+  isLoginLocationFormat,
+  isNominatimResponse,
+} from "../../shared/types/location";
+import { UpdateSettingsInput } from "./auth.validation";
+import {
+  emailVerificationOTPTemplate,
+  userPasswordResetTemplate,
+} from "../../utils/email.payloads";
+
+const defaultUserSettings = {
+  notifications: {
+    bloodRequests: true,
+    donorResponses: true,
+    requestFulfilled: true,
+    systemUpdates: false,
+    emailDigest: true,
+    smsAlerts: false,
+  },
+  privacy: {
+    showPhone: false,
+    showEmail: false,
+    showLocation: true,
+    showDonations: true,
+    showSocials: true,
+  },
+};
+
+const normalizeUserSettings = (settings: any) => ({
+  notifications: {
+    ...defaultUserSettings.notifications,
+    ...(settings?.notifications || {}),
+  },
+  privacy: {
+    ...defaultUserSettings.privacy,
+    ...(settings?.privacy || {}),
+  },
+});
 
 export class AuthService {
   // ══════════════════════════════════════════════════════
@@ -104,15 +147,10 @@ export class AuthService {
     await sendEmail({
       to: user.email,
       subject: "BloodConnect — Verify your email",
-      html: `
-        <h2>Email Verification</h2>
-        <p>Hi ${user.name},</p>
-        <p>Your verification code is:</p>
-        <div style="font-size:28px;font-weight:700;letter-spacing:4px;">${code}</div>
-        <p>This code expires in <strong>10 minutes</strong>.</p>
-        <p>If you did not request this, please ignore this email.</p>
-        <p>— BloodConnect Team</p>
-      `,
+      html: emailVerificationOTPTemplate({
+        name: user.name,
+        code,
+      }),
     });
 
     await UserActivity.create({
@@ -221,10 +259,28 @@ export class AuthService {
     // skip for localhost / private IPs (dev environment)
     if (!ipLoc.country) return { isVpn: false };
 
-    const fCountry = (frontendLocation.country_code || "").toUpperCase().trim();
+    const fCountry = (
+      frontendLocation.country_code ||
+      frontendLocation.country ||
+      frontendLocation.address?.country_code ||
+      frontendLocation.address?.country ||
+      ""
+    ).toUpperCase().trim();
     const iCountry = (ipLoc.country || "").toUpperCase().trim();
-    const fCity = (frontendLocation.city || "").toLowerCase().trim();
-    const fState = (frontendLocation.state || "").toLowerCase().trim();
+    const fCity = (
+      frontendLocation.city ||
+      frontendLocation.address?.city ||
+      frontendLocation.address?.town ||
+      frontendLocation.address?.village ||
+      ""
+    ).toLowerCase().trim();
+    const fState = (
+      frontendLocation.state ||
+      frontendLocation.state_district ||
+      frontendLocation.address?.state ||
+      frontendLocation.address?.state_district ||
+      ""
+    ).toLowerCase().trim();
     const iCity = (ipLoc.city || "").toLowerCase().trim();
     const iState = (ipLoc.state || "").toLowerCase().trim();
 
@@ -290,23 +346,26 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 12);
 
     // ── Build location from frontend data ─────────────
-    const userLocation = {
-      displayName: location.displayName || "",
-      road: location.road || "",
-      quarter: location.quarter || "",
-      suburb: location.suburb || "",
-      city: location.city || location.county || "",
-      county: location.county || "",
-      state_district: location.state_district || "",
-      state: location.state || "",
-      postcode: location.postcode || "",
-      country: location.country || "",
-      country_code: (location.country_code || "").toUpperCase(),
-      coordinates: {
-        lat: location.coordinates?.lat ?? null,
-        lng: location.coordinates?.lng ?? null,
-      },
+    let userLocation: LoginLocationFormat = {
+      displayName: "",
+      road: "",
+      quarter: "",
+      suburb: "",
+      city: "",
+      county: "",
+      state_district: "",
+      state: "",
+      postcode: "",
+      country: "",
+      country_code: "",
+      coordinates: { lat: 0, lng: 0 },
     };
+
+    if (location && (isLoginLocationFormat(location) || isNominatimResponse(location))) {
+      const latitude = (location as any).latitude ?? (location as any).lat ?? null;
+      const longitude = (location as any).longitude ?? (location as any).lon ?? null;
+      userLocation = normalizeLocationToLoginFormat(location as any, latitude, longitude);
+    }
 
     // ── Create user ────────────────────────────────────
     const user = await User.create({
@@ -571,27 +630,23 @@ export class AuthService {
     user.security.activeSessions += 1;
 
     // ── Update location on every login ─────────────────
-    if (location) {
+    if (location && (isLoginLocationFormat(location) || isNominatimResponse(location))) {
+      const latitude = (location as any).latitude ?? (location as any).lat ?? null;
+      const longitude = (location as any).longitude ?? (location as any).lon ?? null;
+      const transformedLocation = normalizeLocationToLoginFormat(location as any, latitude, longitude);
       user.location = {
-        displayName: location.displayName || user.location.displayName,
-        road: location.road || user.location.road,
-        quarter: location.quarter || user.location.quarter,
-        suburb: location.suburb || user.location.suburb,
-        city: location.city || user.location.city,
-        county: location.county || user.location.county,
-        state_district: location.state_district || user.location.state_district,
-        state: location.state || user.location.state,
-        postcode: location.postcode || user.location.postcode,
-        country: location.country || user.location.country,
-        country_code: (
-          location.country_code ||
-          user.location.country_code ||
-          ""
-        ).toUpperCase(),
-        coordinates: {
-          lat: location.coordinates?.lat ?? user.location.coordinates.lat,
-          lng: location.coordinates?.lng ?? user.location.coordinates.lng,
-        },
+        displayName: transformedLocation.displayName,
+        road: transformedLocation.road || "",
+        quarter: transformedLocation.quarter || "",
+        suburb: transformedLocation.suburb || "",
+        city: transformedLocation.city || "",
+        county: transformedLocation.county || "",
+        state_district: transformedLocation.state_district || "",
+        state: transformedLocation.state || "",
+        postcode: transformedLocation.postcode || "",
+        country: transformedLocation.country || "",
+        country_code: transformedLocation.country_code || "",
+        coordinates: transformedLocation.coordinates,
       };
     }
 
@@ -658,9 +713,13 @@ export class AuthService {
     const donor =
       user.role === "donor"
         ? await Donor.findOne({ userId: user._id }).select(
-            "isAvailable totalDonations lastDonationDate isVerified",
+            "isAvailable totalDonations lastDonationDate isVerified nextAvailableAt",
           )
         : null;
+
+    if (donor) {
+      await ensureDonorAvailability(donor);
+    }
 
     return {
       refreshToken,
@@ -676,7 +735,7 @@ export class AuthService {
           bloodType: user.bloodType,
           lastReceivedDate: user.lastReceivedDate ?? null,
           totalReceived: user.totalReceived ?? 0,
-          isAvailable: donor?.isAvailable ?? false,
+          isAvailable: isDonorAvailable(donor),
           isVerified: user.isVerified,
           isDonorVerified: donor?.isVerified ?? false,
           totalDonations: donor?.totalDonations ?? 0,
@@ -956,26 +1015,14 @@ export class AuthService {
 
     // ── Send raw token in email ────────────────────────
     const resetUrl = `${clientUrl}/reset-password?token=${resetToken}`;
-console.log(resetUrl)
     await sendEmail({
       to: user.email,
       subject: "BloodConnect — Password Reset",
-      html: `
-        <h2>Password Reset Request</h2>
-        <p>Hi ${user.name},</p>
-        <p>
-          You have <strong>${3 - user.passwordResetAttempts} attempt(s)</strong>
-          remaining before lockout.
-        </p>
-        <p>Click below to reset your password. Expires in <strong>30 minutes</strong>.</p>
-        <a href="${resetUrl}"
-           style="display:inline-block;padding:12px 28px;background:#e53e3e;
-                  color:white;border-radius:6px;text-decoration:none;margin:16px 0">
-          Reset Password
-        </a>
-        <p>If you didn't request this, ignore this email.</p>
-        <p>— BloodConnect Team</p>
-      `,
+      html: userPasswordResetTemplate({
+        name: user.name,
+        resetUrl,
+        attemptsRemaining: 3 - user.passwordResetAttempts,
+      }),
     });
   }
 
@@ -1045,6 +1092,49 @@ console.log(resetUrl)
   // ══════════════════════════════════════════════════════
   //  UPDATE AUTH USER
   // ══════════════════════════════════════════════════════
+  static async getSettings(userId: string) {
+    const user = await User.findById(userId).select("settings");
+    if (!user) throw new ApiError(404, "User not found");
+
+    return normalizeUserSettings(user.settings);
+  }
+
+  static async updateSettings(userId: string, body: UpdateSettingsInput) {
+    const user = await User.findById(userId).select("settings");
+    if (!user) throw new ApiError(404, "User not found");
+
+    const currentSettings = normalizeUserSettings(user.settings);
+
+    user.settings = {
+      notifications: {
+        ...currentSettings.notifications,
+        ...(body.notifications || {}),
+      },
+      privacy: {
+        ...currentSettings.privacy,
+        ...(body.privacy || {}),
+      },
+    };
+
+    await user.save();
+
+    return normalizeUserSettings(user.settings);
+  }
+
+  static async updateNotificationSettings(
+    userId: string,
+    notifications: NonNullable<UpdateSettingsInput["notifications"]>,
+  ) {
+    return this.updateSettings(userId, { notifications });
+  }
+
+  static async updatePrivacySettings(
+    userId: string,
+    privacy: NonNullable<UpdateSettingsInput["privacy"]>,
+  ) {
+    return this.updateSettings(userId, { privacy });
+  }
+
   static async updateAuthUser(userId: string, body: any) {
     const user = await User.findById(userId);
     if (!user) throw new ApiError(404, "User not found");
@@ -1080,7 +1170,7 @@ console.log(resetUrl)
     }
 
     const refreshedUser = await User.findById(user._id).select(
-      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks lastReceivedDate totalReceived",
+      "name email phone avatar role bloodType isVerified location age weight gender dateOfBirth socialLinks settings lastReceivedDate totalReceived",
     );
 
     if (!refreshedUser) throw new ApiError(404, "User not found");
@@ -1088,15 +1178,17 @@ console.log(resetUrl)
     const donor =
       refreshedUser.role === "donor"
         ? await Donor.findOne({ userId: refreshedUser._id }).select(
-            "isAvailable totalDonations lastDonationDate isVerified",
+            "isAvailable totalDonations lastDonationDate isVerified nextAvailableAt",
           )
         : null;
+
+    const computedAvailable = isDonorAvailable(donor);
 
     return {
       ...refreshedUser.toObject(),
       lastReceivedDate: refreshedUser.lastReceivedDate ?? null,
       totalReceived: refreshedUser.totalReceived ?? 0,
-      isAvailable: donor?.isAvailable ?? false,
+      isAvailable: computedAvailable,
       isDonorVerified: donor?.isVerified ?? false,
       totalDonations: donor?.totalDonations ?? 0,
       lastDonationDate: donor?.lastDonationDate ?? null,
@@ -1138,10 +1230,6 @@ console.log(resetUrl)
       Session.updateMany(
         { userId, isActive: true },
         { $set: { isActive: false, loggedOutAt: new Date() } },
-      ),
-      Donor.findOneAndUpdate(
-        { userId },
-        { $set: { isAvailable: false } },
       ),
     ]);
 
@@ -1195,10 +1283,6 @@ console.log(resetUrl)
         { userId, isActive: true },
         { $set: { isActive: false, loggedOutAt: new Date() } },
       ),
-      Donor.findOneAndUpdate(
-        { userId },
-        { $set: { isAvailable: false } },
-      ),
     ]);
 
     await UserActivity.create({
@@ -1212,3 +1296,4 @@ console.log(resetUrl)
     }).catch(() => {});
   }
 }
+
