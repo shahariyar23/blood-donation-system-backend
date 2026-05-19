@@ -1,10 +1,11 @@
 import cors, { CorsOptions } from "cors";
-import { ApiError }          from "../shared/utils/ApiError";
+import { ApiError } from "../shared/utils/ApiError";
+import env from "./env";
 
 // ── Allowed origins ────────────────────────────────────
 const rawOrigins =
   process.env.CLIENT_URLS ||
-  process.env.CLIENT_URL ||
+  env.CLIENT_URL ||
   "http://localhost:5173,http://localhost:3000";
 
 const allowedOrigins: string[] = rawOrigins
@@ -12,10 +13,12 @@ const allowedOrigins: string[] = rawOrigins
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+console.log(rawOrigins);
+
 const corsOptions: CorsOptions = {
   origin: (
     origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void
+    callback: (err: Error | null, allow?: boolean) => void,
   ) => {
     // allow requests with no origin (Postman, mobile apps, curl)
     if (!origin) {
@@ -30,11 +33,11 @@ const corsOptions: CorsOptions = {
     }
   },
 
-  credentials:     true,   // allow cookies (refreshToken)
-  methods:         ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders:  ["Content-Type", "Authorization"],
-  exposedHeaders:  ["X-Total-Count"],  // useful for pagination headers
-  maxAge:          86400,              // preflight cache: 24 hours
+  credentials: true, // allow cookies (refreshToken)
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  exposedHeaders: ["X-Total-Count"], // useful for pagination headers
+  maxAge: 86400, // preflight cache: 24 hours
 };
 
 export default cors(corsOptions);
