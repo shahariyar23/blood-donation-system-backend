@@ -5,7 +5,7 @@ import env from "./env";
 // ── Allowed origins ────────────────────────────────────
 const rawOrigins =
   env.CLIENT_URL ||
-  "http://localhost:5173,http://localhost:3000,https://blood-donation-system-ui.vercel.app";
+  "https://blood-donation-system-ui.vercel.app,http://localhost:5173";
 
 const allowedOrigins: string[] = rawOrigins
   .split(",")
