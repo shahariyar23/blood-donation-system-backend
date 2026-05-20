@@ -8,6 +8,12 @@ import {
   Session,
   UserActivity,
   Donor,
+  BloodRequest,
+  Donation,
+  Notification,
+  Report,
+  Verification,
+  CommunityReport,
 } from "../index";
 import {
   ApiError,
@@ -575,6 +581,11 @@ export class AuthService {
 
     if (!user) {
       throw new ApiError(401, "Your Password is wrong");
+    }
+
+    // If user has been deleted (soft-delete), do not reveal existence — return generic error
+    if ((user as any).isDeleted) {
+      throw new ApiError(401, "Email or phone number is not correct");
     }
 
     if (!user.isActive) {
@@ -1252,10 +1263,15 @@ export class AuthService {
     sessionId: string,
     ip: string,
     userAgent: string,
+    currentPassword: string,
     reason?: string,
   ) {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select("+passwordHash");
     if (!user) throw new ApiError(404, "User not found");
+
+    // verify current password
+    const isMatch = await bcrypt.compare(currentPassword || "", user.passwordHash);
+    if (!isMatch) throw new ApiError(401, "Incorrect password");
 
     const donor = await Donor.findOne({ userId });
 
@@ -1272,28 +1288,37 @@ export class AuthService {
       deletedAt: new Date(),
     });
 
-    user.isActive = false;
-    user.isDeleted = true;
-    user.deletedAt = new Date();
-    user.security.activeSessions = 0;
-    await user.save();
-
+    // Hard-delete: remove user and all related documents/references
     await Promise.all([
-      Session.updateMany(
-        { userId, isActive: true },
-        { $set: { isActive: false, loggedOutAt: new Date() } },
-      ),
+      // sessions
+      Session.deleteMany({ userId }),
+      // donor profile
+      Donor.deleteOne({ userId }),
+      // user activities
+      UserActivity.deleteMany({ userId }),
+      // notifications where user is recipient
+      Notification.deleteMany({ userId }),
+      // notifications that reference this user as related entity
+      Notification.deleteMany({ relatedModel: "User", relatedId: user._id }),
+      // blood requests created by user
+      BloodRequest.deleteMany({ requestedBy: user._id }),
+      // remove user from respondedDonors arrays
+      BloodRequest.updateMany({ respondedDonors: user._id }, { $pull: { respondedDonors: user._id } }),
+      // nullify fulfilledBy if set to this user
+      BloodRequest.updateMany({ fulfilledBy: user._id }, { $set: { fulfilledBy: null } }),
+      // donations where user is donor/hospital/requester
+      Donation.deleteMany({ $or: [ { donorId: user._id }, { hospitalId: user._id }, { requestedBy: user._id } ] }),
+      // nullify approval/collection references
+      Donation.updateMany({ $or: [ { approvedBy: user._id }, { collectedBy: user._id } ] }, { $set: { approvedBy: null, collectedBy: null } }),
+      // reports and community reports involving the user
+      Report.deleteMany({ $or: [ { reportedBy: user._id }, { reportedUser: user._id }, { reviewedBy: user._id } ] }),
+      CommunityReport.deleteMany({ $or: [ { reportedBy: user._id }, { reportedUser: user._id }, { reviewedBy: user._id } ] }),
+      // verifications
+      Verification.deleteMany({ $or: [ { userId: user._id }, { verifiedBy: user._id } ] }),
     ]);
 
-    await UserActivity.create({
-      userId,
-      sessionId,
-      event: "account_delete",
-      meta: { action: "soft_delete", reason: reason || "" },
-      ip: this.cleanIp(ip),
-      userAgent,
-      timestamp: new Date(),
-    }).catch(() => {});
+    // finally delete the user document itself
+    await User.findByIdAndDelete(user._id);
   }
 }
 

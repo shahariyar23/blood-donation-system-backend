@@ -26,6 +26,10 @@ import {
   getAdminDonations,
   getAdminDonationById,
   updateAdminDonationStatus,
+  getAdminDeletedUsers,
+  getAdminDeletedUserById,
+  restoreAdminDeletedUser,
+  permanentlyDeleteAdminDeletedUser,
   getAdminVerifications,
   verifyAdminVerification,
   getAdminSettings,
@@ -66,6 +70,10 @@ router.get("/blood-requests/:id", getAdminBloodRequestById);
 router.get("/donations", getAdminDonations);
 router.get("/donations/:id", getAdminDonationById);
 router.patch("/donations/:id/status", updateAdminDonationStatus);
+router.get("/deleted-users", getAdminDeletedUsers);
+router.get("/deleted-users/:id", getAdminDeletedUserById);
+router.post("/deleted-users/:id/restore", restoreAdminDeletedUser);
+router.delete("/deleted-users/:id", permanentlyDeleteAdminDeletedUser);
 router.get("/verifications", getAdminVerifications);
 router.get("/settings", getAdminSettings);
 router.patch("/verifications/:id/verify", verifyAdminVerification);

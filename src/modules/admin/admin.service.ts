@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import { ApiError, paginate } from "../../shared/utils";
-import { BloodRequest, CommunityReport, Donation, Donor, User, Verification, Settings, Hospital, Report } from "../index";
+import { BloodRequest, CommunityReport, Donation, Donor, User, Verification, Settings, Hospital, Report, DeletedUser } from "../index";
 import type { ISettings } from "./Settings.schema";
 
 type AdminUsersQuery = {
@@ -388,6 +388,99 @@ export class AdminService {
     }
 
     return userObj;
+  }
+  static async getDeletedUsers(query: Record<string, any>) {
+    const { search } = query;
+    const { skip, limit, page, totalPages } = paginate(query as Record<string, any>);
+
+    const filter: Record<string, any> = {};
+
+    if (search) {
+      const regex = new RegExp(String(search), "i");
+      filter.$or = [
+        { "userSnapshot.name": { $regex: regex } },
+        { "userSnapshot.email": { $regex: regex } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      DeletedUser.find(filter)
+        .sort({ deletedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      DeletedUser.countDocuments(filter),
+    ]);
+
+    const deletedUsers = items.map((d: any) => ({
+      id: d._id,
+      userId: d.userId,
+      name: d.userSnapshot?.name || null,
+      email: d.userSnapshot?.email || null,
+      role: d.userSnapshot?.role || null,
+      reason: d.reason || null,
+      deletedAt: d.deletedAt,
+      meta: d.meta || {},
+    }));
+
+    return {
+      deletedUsers,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: totalPages(total),
+      },
+    };
+  }
+
+  static async getDeletedUserById(deletedId: string) {
+    validateObjectId(deletedId, "deleted user ID");
+
+    const doc = await DeletedUser.findById(deletedId).lean();
+    if (!doc) throw new ApiError(404, "Deleted user not found");
+
+    return doc;
+  }
+
+  static async restoreDeletedUser(deletedId: string) {
+    validateObjectId(deletedId, "deleted user ID");
+
+    const doc: any = await DeletedUser.findById(deletedId);
+    if (!doc) throw new ApiError(404, "Deleted user not found");
+
+    // If a user with same id already exists, prevent overwrite
+    const existing = await User.findById(doc.userId);
+    if (existing) throw new ApiError(400, "User already exists");
+
+    const userSnapshot = doc.userSnapshot ? { ...doc.userSnapshot } : {};
+    // ensure flags are sensible on restore
+    userSnapshot.isDeleted = false;
+    userSnapshot.isActive = true;
+
+    // Recreate user with original _id when possible
+    const restoredUser = await User.create(userSnapshot);
+
+    if (doc.donorSnapshot) {
+      const donorSnapshot = { ...doc.donorSnapshot, userId: restoredUser._id };
+      await Donor.create(donorSnapshot).catch(() => {});
+    }
+
+    // remove the DeletedUser snapshot after successful restore
+    await DeletedUser.findByIdAndDelete(deletedId);
+
+    return restoredUser;
+  }
+
+  static async permanentlyDeleteDeletedUser(deletedId: string) {
+    validateObjectId(deletedId, "deleted user ID");
+
+    const doc = await DeletedUser.findById(deletedId);
+    if (!doc) throw new ApiError(404, "Deleted user not found");
+
+    await DeletedUser.findByIdAndDelete(deletedId);
+
+    return { id: deletedId, deleted: true };
   }
   
   static async updateUserStatus(targetUserId: string, isActive: boolean) {

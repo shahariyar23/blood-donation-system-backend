@@ -252,13 +252,14 @@ export const deleteAccount = asyncHandler(
   async (req: Request, res: Response) => {
     const ip        = extractIp(req);
     const userAgent = req.headers["user-agent"] || "";
-    const reason = (req.body?.reason as string) || "";
+    const { currentPassword, reason } = req.body || {};
 
     await AuthService.deleteAccount(
       req.user!.id,
       req.user!.sessionId,
       ip,
       userAgent,
+      currentPassword,
       reason,
     );
 

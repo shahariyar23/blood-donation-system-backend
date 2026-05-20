@@ -387,6 +387,57 @@ export const getAdminDonations = asyncHandler(async (req: Request, res: Response
     .json(new ApiResponse(200, "Donations retrieved successfully", data));
 });
 
+export const getAdminDeletedUsers = asyncHandler(async (req: Request, res: Response) => {
+  const data = await AdminService.getDeletedUsers(req.query as Record<string, string>);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_view",
+    meta: { action: "admin_deleted_users", filters: req.query },
+  });
+
+  res.status(200).json(new ApiResponse(200, "Deleted users fetched successfully", data));
+});
+
+export const getAdminDeletedUserById = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = await AdminService.getDeletedUserById(id);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_view",
+    meta: { action: "admin_deleted_user_detail", targetDeletedId: id },
+  });
+
+  res.status(200).json(new ApiResponse(200, "Deleted user details fetched successfully", data));
+});
+
+export const restoreAdminDeletedUser = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = await AdminService.restoreDeletedUser(id);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: { action: "admin_restore_deleted_user", targetDeletedId: id },
+  });
+
+  res.status(200).json(new ApiResponse(200, "Deleted user restored successfully", data));
+});
+
+export const permanentlyDeleteAdminDeletedUser = asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const data = await AdminService.permanentlyDeleteDeletedUser(id);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: { action: "admin_permanent_delete_snapshot", targetDeletedId: id },
+  });
+
+  res.status(200).json(new ApiResponse(200, "Deleted user snapshot removed permanently", data));
+});
+
 export const getAdminDonationById = asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = await AdminService.getDonationById(id);

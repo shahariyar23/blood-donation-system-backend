@@ -38,6 +38,7 @@ import {
   resetPasswordSchema,
   sendOtpSchema,
   verifyOtpSchema,
+  deleteAccountSchema,
   updateSettingsSchema,
   notificationsSettingsSchema,
   privacySettingsSchema,
@@ -126,7 +127,12 @@ router.delete("/sessions/:sessionId", protect, logoutSingleSession);
 router.post("/deactivate-account", protect, deactivateAccount);
 
 // DELETE /api/auth/delete-account
-router.delete("/delete-account", protect, deleteAccount);
+router.delete(
+  "/delete-account",
+  protect,
+  validate(deleteAccountSchema),
+  deleteAccount,
+);
 
 // POST /api/auth/logout
 router.post("/logout", protect, logout);

@@ -145,6 +145,14 @@ export const verifyOtpSchema = z.object({
     .regex(/^\d{6}$/, "OTP must be a 6-digit code"),
 });
 
+// ═════════════════════════════════════════════════════=
+//  DELETE ACCOUNT
+// ═════════════════════════════════════════════════════=
+export const deleteAccountSchema = z.object({
+  currentPassword: z.string().min(1, "Password is required"),
+  reason: z.string().max(500).optional(),
+});
+
 // ── Inferred TypeScript types ──────────────────────────
 export const notificationsSettingsSchema = z.object({
   bloodRequests: z.boolean().optional(),
@@ -178,3 +186,4 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type SendOtpInput = z.infer<typeof sendOtpSchema>;
 export type VerifyOtpInput = z.infer<typeof verifyOtpSchema>;
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
