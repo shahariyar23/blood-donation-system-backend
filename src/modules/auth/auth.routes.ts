@@ -51,7 +51,7 @@ const router = Router();
 // ══════════════════════════════════════════════════════
 
 // POST /api/auth/upload-avatar
-router.post("/upload-avatar", authLimiter, upload.avatar, uploadAvatar);
+router.post("/upload-avatar", authLimiter, protect, upload.avatar, uploadAvatar);
 
 // POST /api/auth/register
 router.post("/register", authLimiter, validate(registerSchema), register);

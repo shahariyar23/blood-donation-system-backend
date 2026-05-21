@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
+import { v2 as cloudinary } from "cloudinary";
+import fs from "fs/promises";
 import mongoose from "mongoose";
 import User from "./User.schema";
 import { Donor, CommunityReport, UserActivity, Donation, Report } from "../index";
@@ -254,7 +256,36 @@ export const updateAvatar = asyncHandler(
       throw new ApiError(400, "No file uploaded");
     }
 
-    const avatarUrl = `/uploads/${file.filename}`;
+    // Try Cloudinary upload if configured, otherwise fallback to local path
+    let avatarUrl = `/uploads/${file.filename}`;
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (cloudName && apiKey && apiSecret) {
+      cloudinary.config({
+        cloud_name: cloudName,
+        api_key: apiKey,
+        api_secret: apiSecret,
+      });
+
+      try {
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: "bloodConnect/avatars",
+          resource_type: "image",
+        });
+
+        if (result && result.secure_url) {
+          avatarUrl = result.secure_url;
+        }
+      } catch (err) {
+        // If Cloudinary upload fails, keep local path and continue
+      }
+    }
+
+    // remove local temp file if it exists
+    await fs.unlink(file.path).catch(() => {});
 
     const updated = await User.findByIdAndUpdate(
       userId,

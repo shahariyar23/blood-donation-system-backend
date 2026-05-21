@@ -2,6 +2,8 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import UAParser from "ua-parser-js";
 import geoip from "geoip-lite";
+import { URL } from "url";
+import { v2 as cloudinary } from "cloudinary";
 import {
   User,
   DeletedUser,
@@ -126,6 +128,61 @@ export class AuthService {
     });
 
     return activeSessions;
+  }
+
+  private static extractCloudinaryPublicId(avatarUrl: string): string | null {
+    try {
+      const parsed = new URL(avatarUrl);
+      const pathname = parsed.pathname;
+      const uploadSegment = pathname.split("/upload/")[1];
+      if (!uploadSegment) return null;
+
+      const segments = uploadSegment.split("/");
+      const versionIndex = segments.findIndex((segment) => /^v\d+$/.test(segment));
+      const publicIdSegments = versionIndex >= 0
+        ? segments.slice(versionIndex + 1)
+        : segments;
+
+      if (publicIdSegments.length === 0) return null;
+      const publicIdWithExt = publicIdSegments.join("/");
+      return publicIdWithExt.replace(/\.[^/.]+$/, "");
+    } catch {
+      return null;
+    }
+  }
+
+  private static async deleteCloudinaryAvatar(avatarUrl?: string | null) {
+    if (!avatarUrl || !avatarUrl.includes("res.cloudinary.com")) {
+      return;
+    }
+
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      return;
+    }
+
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
+
+    const publicId = this.extractCloudinaryPublicId(avatarUrl);
+    if (!publicId) {
+      return;
+    }
+
+    try {
+      await cloudinary.uploader.destroy(publicId, {
+        resource_type: "image",
+        invalidate: true,
+      });
+    } catch {
+      return;
+    }
   }
 
   private static generateOtpCode(): string {
@@ -1287,6 +1344,8 @@ export class AuthService {
       },
       deletedAt: new Date(),
     });
+
+    await this.deleteCloudinaryAvatar(user.avatar);
 
     // Hard-delete: remove user and all related documents/references
     await Promise.all([
