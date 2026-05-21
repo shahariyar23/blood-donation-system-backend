@@ -75,12 +75,17 @@ export class AdminService {
     return admin;
   }
 
-  static async getDashboard() {
+  static async getDashboard(adminId: string) {
     const monthKeys = getRecentMonthKeys(6);
     const dateKeys = getRecentDateKeys(7);
     const monthlyStart = new Date(`${monthKeys[0]}-01T00:00:00.000Z`);
     const weeklyStart = new Date(`${dateKeys[0]}T00:00:00.000Z`);
     const activeDonationStatuses = ["approved", "completed"];
+
+    // Fetch admin user data
+    const admin = await User.findById(adminId).select(
+      "name email phone avatar role isVerified isActive createdAt updatedAt"
+    );
 
     const [
       totalUsers,
@@ -236,6 +241,18 @@ export class AdminService {
         };
       }),
       recentReports,
+      admin: admin ? {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        phone: admin.phone,
+        avatar: admin.avatar,
+        role: admin.role,
+        isVerified: admin.isVerified,
+        isActive: admin.isActive,
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+      } : null,
     };
   }
 

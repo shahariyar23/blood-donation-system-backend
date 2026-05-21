@@ -65,12 +65,8 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
     throw new ApiError(400, "No avatar file uploaded");
   }
 
-  if (!req.user?.id) {
-    throw new ApiError(401, "User not authenticated");
-  }
-
   const filePath = file.path;
-  const userId = req.user.id;
+  const userId = req.user?.id;
 
   try {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
@@ -87,18 +83,20 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
       api_secret: apiSecret,
     });
 
-    // Delete old avatar if exists
-    const user = await User.findById(userId).select("avatar");
-    if (user?.avatar) {
-      // Extract public_id from Cloudinary URL or local upload
-      if (user.avatar.includes("cloudinary")) {
-        // Cloudinary URL: extract public_id
-        const urlParts = user.avatar.split("/");
-        const filename = urlParts[urlParts.length - 1];
-        const publicId = filename.split(".")[0];
-        const folderPath = urlParts.slice(urlParts.indexOf("upload") + 1, -1).join("/");
-        const fullPublicId = folderPath ? `${folderPath}/${publicId}` : publicId;
-        await cloudinary.uploader.destroy(fullPublicId).catch(() => {});
+    // Delete old avatar if exists (only if user is authenticated)
+    if (userId) {
+      const user = await User.findById(userId).select("avatar");
+      if (user?.avatar) {
+        // Extract public_id from Cloudinary URL or local upload
+        if (user.avatar.includes("cloudinary")) {
+          // Cloudinary URL: extract public_id
+          const urlParts = user.avatar.split("/");
+          const filename = urlParts[urlParts.length - 1];
+          const publicId = filename.split(".")[0];
+          const folderPath = urlParts.slice(urlParts.indexOf("upload") + 1, -1).join("/");
+          const fullPublicId = folderPath ? `${folderPath}/${publicId}` : publicId;
+          await cloudinary.uploader.destroy(fullPublicId).catch(() => {});
+        }
       }
     }
 
@@ -108,15 +106,17 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
       resource_type: "image",
     });
 
-    // Update user's avatar URL in database
-    const updatedUser = await User.findByIdAndUpdate(
-      userId,
-      { avatar: result.secure_url },
-      { new: true }
-    );
+    // Update user's avatar URL in database (only if user is authenticated)
+    if (userId) {
+      const updatedUser = await User.findByIdAndUpdate(
+        userId,
+        { avatar: result.secure_url },
+        { new: true }
+      );
 
-    if (!updatedUser) {
-      throw new ApiError(500, "Failed to update avatar in database");
+      if (!updatedUser) {
+        throw new ApiError(500, "Failed to update avatar in database");
+      }
     }
 
     res
@@ -127,10 +127,12 @@ export const uploadAvatar = asyncHandler(async (req: Request, res: Response) => 
         })
       );
 
-    await logUserActivity(req, userId, "avatar_upload", {
-      action: "upload_avatar",
-      avatarUrl: result.secure_url,
-    });
+    if (userId) {
+      await logUserActivity(req, userId, "avatar_upload", {
+        action: "upload_avatar",
+        avatarUrl: result.secure_url,
+      });
+    }
   } finally {
     await fs.unlink(filePath).catch(() => {});
   }

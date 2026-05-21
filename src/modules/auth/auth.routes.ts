@@ -22,7 +22,7 @@ import {
   deactivateAccount,
   deleteAccount,
 } from "./auth.controller";
-import { protect } from "../../middleware/auth.middleware";
+import { protect, optionalProtect } from "../../middleware/auth.middleware";
 import { upload } from "../../middleware/upload.middleware";
 import {
   authLimiter,
@@ -50,8 +50,8 @@ const router = Router();
 //  PUBLIC ROUTES
 // ══════════════════════════════════════════════════════
 
-// POST /api/auth/upload-avatar
-router.post("/upload-avatar", authLimiter, protect, upload.avatar, uploadAvatar);
+// POST /api/auth/upload-avatar (works for both authenticated & unauthenticated users)
+router.post("/upload-avatar", authLimiter, optionalProtect, upload.avatar, uploadAvatar);
 
 // POST /api/auth/register
 router.post("/register", authLimiter, validate(registerSchema), register);

@@ -44,7 +44,7 @@ export const getAdminMe = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getAdminDashboard = asyncHandler(async (req: Request, res: Response) => {
-  const data = await AdminService.getDashboard();
+  const data = await AdminService.getDashboard(req.user!.id);
 
   await logActivity(req, {
     userId: req.user?.id,
