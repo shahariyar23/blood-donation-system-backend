@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { ApiError, ApiResponse, asyncHandler } from "../../shared/utils";
 import { AdminService } from "./admin.service";
 import { logActivity } from "../user/activity.logger";
+import type { ReportFormat, ReportSection } from "./ReportJob.schema";
 
 const parseVerificationBody = (body: any) => {
   if (typeof body?.isVerified === "boolean") {
@@ -29,6 +30,63 @@ const parseVerificationBody = (body: any) => {
   throw new ApiError(400, "status must be verified, unverified, or blocked");
 };
 
+const getReportRequestContext = (req: Request) => ({
+  ip: req.ip || "",
+  userAgent: String(req.headers["user-agent"] || ""),
+});
+
+const createExportHandler = (section: ReportSection) =>
+  asyncHandler(async (req: Request, res: Response) => {
+    const format = String(req.query.format || "").toLowerCase() as ReportFormat;
+    const data = await AdminService.requestReportExport(
+      section,
+      format,
+      req.user!.id,
+      req.query as Record<string, any>,
+      getReportRequestContext(req),
+    );
+
+    res
+      .status(202)
+      .json(new ApiResponse(202, "Report export job created successfully", data));
+  });
+
+export const exportAdminUsers = createExportHandler("users");
+export const exportAdminDeletedUsers = createExportHandler("deleted-users");
+export const exportAdminBloodRequests = createExportHandler("blood-requests");
+export const exportAdminDonations = createExportHandler("donations");
+export const exportAdminHospitals = createExportHandler("hospitals");
+export const exportAdminReports = createExportHandler("reports");
+export const exportAdminVerifications = createExportHandler("verifications");
+
+export const getAdminReportJobs = asyncHandler(async (req: Request, res: Response) => {
+  const data = await AdminService.listReportJobs(req.query as Record<string, any>);
+  res.status(200).json(new ApiResponse(200, "Report jobs fetched successfully", data));
+});
+
+export const getAdminReportJobById = asyncHandler(async (req: Request, res: Response) => {
+  const data = await AdminService.getReportJob(req.params.id);
+  res.status(200).json(new ApiResponse(200, "Report job fetched successfully", data));
+});
+
+export const downloadAdminReportJob = asyncHandler(async (req: Request, res: Response) => {
+  const file = await AdminService.prepareReportDownload(
+    req.params.id,
+    req.user!.id,
+    getReportRequestContext(req),
+  );
+
+  res.setHeader("Content-Type", file.contentType);
+  res.setHeader("Content-Length", String(file.fileSize));
+  res.setHeader("Content-Disposition", `attachment; filename="${file.fileName}"`);
+  res.status(200).send(file.buffer);
+});
+
+export const getAdminReportAuditLogs = asyncHandler(async (req: Request, res: Response) => {
+  const data = await AdminService.listReportAuditLogs(req.query as Record<string, any>);
+  res.status(200).json(new ApiResponse(200, "Report audit logs fetched successfully", data));
+});
+
 export const getAdminMe = asyncHandler(async (req: Request, res: Response) => {
   const data = await AdminService.getAdminMe(req.user!.id);
 
@@ -43,8 +101,26 @@ export const getAdminMe = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(new ApiResponse(200, "Admin profile fetched successfully", data));
 });
 
+export const sendAdminBulkEmail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await AdminService.sendBulkEmail(req.user!.id, req.body);
+
+  await logActivity(req, {
+    userId: req.user?.id,
+    event: "profile_update",
+    meta: {
+      action: "admin_bulk_email",
+      subject: req.body?.subject,
+      totalRecipients: data.totalRecipients,
+      sent: data.sent,
+      failed: data.failed,
+    },
+  });
+
+  res.status(200).json(new ApiResponse(200, "Bulk email processed successfully", data));
+});
+
 export const getAdminDashboard = asyncHandler(async (req: Request, res: Response) => {
-  const data = await AdminService.getDashboard(req.user!.id);
+  const data = await AdminService.getDashboard(req.user!.id, req.query as Record<string, string>);
 
   await logActivity(req, {
     userId: req.user?.id,

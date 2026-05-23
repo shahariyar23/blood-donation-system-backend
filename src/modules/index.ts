@@ -13,3 +13,5 @@ export { default as CommunityReport } from "./admin/CommunityReport.schema";
 export { default as Report }          from "./admin/Report.schema";
 export { default as Verification }    from "./admin/Verification.schema";
 export { default as Settings }        from "./admin/Settings.schema";
+export { default as ReportJob }       from "./admin/ReportJob.schema";
+export { default as ReportAuditLog }  from "./admin/ReportAuditLog.schema";
